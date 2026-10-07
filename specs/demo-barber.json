@@ -1,0 +1,19 @@
+{
+  "slug": "demo-barber",
+  "name": "Demo Barber (illustrative)",
+  "timezone": "Africa/Johannesburg",
+  "currency": "ZAR",
+  "calendarId": "REPLACE_WITH_SHARED_CALENDAR_ID",
+  "hours": [
+    {"day":1,"open":"09:00","close":"17:00"},
+    {"day":2,"open":"09:00","close":"17:00"},
+    {"day":3,"open":"09:00","close":"17:00"},
+    {"day":4,"open":"09:00","close":"17:00"},
+    {"day":5,"open":"09:00","close":"17:00"}
+  ],
+  "minNoticeMin": 60,
+  "services": [
+    {"id":"haircut","name":"Haircut","durationMin":30,"price":120,"bookableByVoice":true},
+    {"id":"full-colour","name":"Full colour","durationMin":120,"price":600,"bookableByVoice":false}
+  ]
+}

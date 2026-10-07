@@ -1,0 +1,33 @@
+{
+  "name": "open-counter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "dev": "tsx src/local.ts",
+    "test": "tsx --test src/*.test.ts",
+    "gen:specs": "tsx scripts/gen-specs.ts",
+    "build:sam": "npm run gen:specs && sam build",
+    "deploy:cf": "node scripts/deploy-cloudflare.mjs",
+    "dev:cf": "wrangler dev --local --var DEMO_MODE:1"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1147.0",
+    "@aws-sdk/lib-dynamodb": "^3.1147.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "luxon": "^3.7.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/luxon": "^3.7.6",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.148.0"
+  }
+}

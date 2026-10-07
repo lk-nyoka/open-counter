@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Open Counter multi-tenant MCP server
+Parameters:
+  GoogleServiceAccountJson:
+    Type: String
+    NoEcho: true
+    Description: Service account key JSON. Hackathon shortcut; move to Secrets Manager/SSM for production.
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 15
+    MemorySize: 512
+Resources:
+  LocksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: businessId, AttributeType: S }
+        - { AttributeName: slotStart, AttributeType: S }
+      KeySchema:
+        - { AttributeName: businessId, KeyType: HASH }
+        - { AttributeName: slotStart, KeyType: RANGE }
+      TimeToLiveSpecification: { AttributeName: ttl, Enabled: true }
+  McpFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/lambda.ts]
+        Format: esm
+        Target: es2022
+        Minify: false
+        OutExtension: [".js=.mjs"]
+        Banner: ["js=import {createRequire as __cr} from 'module'; const require = __cr(import.meta.url);"]
+    Properties:
+      Handler: lambda.handler
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          LOCKS_TABLE: !Ref LocksTable
+          GOOGLE_SERVICE_ACCOUNT_JSON: !Ref GoogleServiceAccountJson
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref LocksTable }
+      Events:
+        Mcp:
+          Type: HttpApi
+          Properties:
+            Path: /mcp/{slug}
+            Method: ANY
+Outputs:
+  McpBase:
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/mcp/"

@@ -13,7 +13,7 @@ const port = Number(process.env.PORT ?? 8792);
 
 createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/mcp/")) {
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/mcp/") || url.pathname.startsWith("/auth/")) {
     const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
     const body = chunks.length && !["GET", "HEAD"].includes(req.method!) ? Buffer.concat(chunks) : undefined;
     const r = await worker.fetch(new Request(url, { method: req.method, headers: req.headers as Record<string, string>, body }), env);

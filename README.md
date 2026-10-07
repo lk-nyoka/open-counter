@@ -1,44 +1,60 @@
 # Open Counter
 
-Publish a small business's bookings to AI assistants over MCP, without writing code.
-One multi-tenant, stateless MCP server (Streamable HTTP) at `/mcp/{slug}`, driven by a validated business spec.
-Pages: `/` protocol demo, `/assistant.html` voice assistant, `/interview.html` AI interviewer.
-Tools: `get_business_info`, `get_quote`, `check_availability`, `book`, `cancel`.
-A demo web page at `/` acts as a real MCP client (initialize, tools/list, tools/call) and shows the raw protocol.
+Let customers book a small business by talking to an AI assistant. The owner describes the business in plain
+words, connects Google Calendar with one click, and gets an MCP server that Alexa+ (or any MCP assistant) can use.
+The server, not the AI, enforces the owner's rules.
 
-## Run locally (no accounts, no credentials)
+- **Owner side:** `/interview.html` (set up by conversation) → Google sign-in → `/dashboard.html` (bookings,
+  channels, revenue, pause switch, edit services and hours, walk-ins, share links).
+- **Customer side:** `/assistant.html` (voice assistant), `/book.html` (booking form). No login, no owner data.
+- **AI assistants:** `/mcp/{slug}`: MCP 2025-11-25, Streamable HTTP, stateless. Tools: `get_business_info`,
+  `get_quote`, `check_availability`, `book`, `cancel`. `/protocol.html` shows the raw protocol.
+- **Judges / try-out:** "Explore a demo dashboard" on `/` creates a demo business on the built-in calendar.
+  No Google account needed.
+
+The API a frontend builds on is documented in [docs/API.md](docs/API.md).
+
+## Run locally (no accounts)
 ```
 npm install
-npm test
-OPEN_COUNTER_FAKE=1 npm run dev        # http://localhost:8787  (demo page + /mcp/demo-barber)
+npm test                 # type-safe unit, API and end-to-end tests
+npm run dev:local        # http://localhost:8792  (real Worker code, SQLite D1, scripted fake AI)
 ```
-or on the Cloudflare runtime locally: `npm run dev:cf` (http://localhost:8787, local D1).
 
-## Deploy free: Cloudflare Workers + D1 (no credit card)
+## Deploy free: Cloudflare Workers + D1 + Workers AI (no credit card)
 ```
-npm run deploy:cf                                   # demo mode: works immediately, in-memory calendar
-npm run deploy:cf -- --key <service-account.json> --calendar <calendarId>   # real Google Calendar
+npm run deploy:cf                                                        # demo mode
+npm run deploy:cf -- --key <service-account.json> --calendar <calendarId> # demo business on a real Google Calendar
+   --oauth <client_secret_....json>      # add: "Sign in with Google" for owners
+   --frontend https://your-frontend.app  # add: allow a frontend on another domain
 ```
-The script logs you in (browser approval), creates the D1 database and table, deploys, and stores credentials as encrypted secrets. Keep the key file outside the repo.
+The script type-checks and runs every test first (nothing ships if one fails), creates or updates the D1 tables,
+deploys, stores secrets encrypted, and checks that the live build label matches the code. It keeps one stable
+session secret in `.oc-secrets.json` (git-ignored). Keep key files outside the repo.
 
-## AI features (free Workers AI)
-- **Interviewer** (`/interview.html`): the model extracts fields into a draft; code validates every field, tracks what is missing, and the owner reviews before publishing. Published businesses get their own `/mcp/{slug}` endpoint and an owner key (stored only as a hash) for unpublishing.
-- **Voice assistant** (`/assistant.html?business=slug`): the model returns `{say, tool, args}` as JSON; the page executes tools against the MCP server, and a confirmation card (button or spoken yes/no) is the only way `customerConfirmed` becomes true. The model never sees raw ISO times: it picks from the availability list.
-- Limits: 10,000 free neurons/day. The Worker caps AI calls (`AI_DAILY_CALLS`, per-IP hourly) and the pages fall back to the manual page when the allowance is used up.
-- Run the pages locally with a scripted fake model: `npm run dev:local` (http://localhost:8792).
+Google sign-in setup: Google Cloud → Google Auth Platform → External app, add test users, create a **Web
+application** client with redirect URI `https://<your-worker>/auth/google/callback`, download its JSON and pass it
+with `--oauth`. In Google's testing mode only listed test users can sign in and links expire after 7 days; the
+dashboard shows "Reconnect Google Calendar" when that happens.
 
-## How double-booking is prevented
-1. `book` checks every owner rule server-side (hours, notice, grid, voice-blocked services); it never trusts that the client called `check_availability`.
-2. It claims **every 15-minute grid unit** the appointment spans in one atomic statement (D1) or transaction (DynamoDB). Overlapping bookings collide on shared units. Lock rows hold only `{business, slot, bookingId, expiry}`.
-3. While holding the lock it re-reads Google free/busy (catches events the owner added by hand), then creates the event with `id = bookingId`.
-4. Any failure releases the locks. `cancel` deletes the event and releases the locks. Locks expire 24h after the appointment ends.
-5. `idempotencyKey` makes retries return the original booking.
+## How it is built
+- **Bookings are safe under concurrency.** `book` re-checks every owner rule server-side, then claims every
+  15-minute grid unit the appointment spans in one atomic D1 statement, re-reads the calendar while holding the
+  lock, and writes the event with `id = bookingId`. Failures release the locks; `idempotencyKey` makes retries safe.
+- **Calendars.** Each business routes to the owner's own Google Calendar (OAuth, refresh token AES-GCM encrypted
+  at rest), the built-in D1 calendar, or a shared service-account calendar. Owner events block times
+  automatically; events marked "free" do not.
+- **Prompt-injection defence.** Only start/end times leave the calendar adapters: the `BusyInterval` type has no
+  text field. Tool results are structured JSON.
+- **AI that can't make things up.** Interviewer: the model proposes fields, a parser reads the owner's own words,
+  code validates everything and writes each reply from what actually changed; voice rules are found anywhere in a
+  paragraph. Assistant: Whisper (primed with the business's service names) → deterministic understanding of
+  services, dates, times and names (`src/nlu.ts`), the model only filling gaps → a dialog in code
+  (`public/dialog.js`) built from real MCP results. A confirmation is the only way `customerConfirmed` becomes
+  true. Both keep working if the model is down or the free allowance is used up.
+- **Owner and customer data never mix.** `/api/merchant/*` requires a signed session (HMAC, HttpOnly cookie or
+  bearer token) and only returns that owner's businesses; `/api/public/*` returns what any customer may see.
+- **Every booking is tagged with its channel** (voice page, web page, other MCP assistant, owner) for the dashboard.
 
-## Prompt-injection defence
-Availability is computed from Google's `freeBusy` API, which returns time ranges only. Event titles/descriptions never enter the server, and the `BusyInterval` type has no text field. Tool results are structured JSON. Tested in `src/tools.test.ts`.
-
-## Status
-Verified: 28 tests (including the lock SQL on a real SQLite engine and Google JWT signing), the Worker running on the Cloudflare runtime locally (workerd + local D1) passing `scripts/smoke-test.ts`, and the demo page driven end to end in a browser.
-**Not yet verified:** the deployed Cloudflare URL and real Google Calendar. Log anything odd in `docs/friction-log.md`.
-
-An AWS SAM/Lambda/DynamoDB path (`template.yaml`, `src/lambda.ts`) is kept for the AWS Builder challenge; it needs an AWS account.
+An AWS SAM/Lambda/DynamoDB path (`template.yaml`, `src/lambda.ts`) is kept for the AWS Builder challenge; it needs
+an AWS account.

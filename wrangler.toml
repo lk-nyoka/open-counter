@@ -15,6 +15,7 @@ database_id = "0db96c7a-e2ea-4650-b353-6e36bf4c37da"
 binding = "AI"
 
 [vars]
-# Models on the free Workers AI plan (10,000 neurons/day). Swap here if a model is unavailable on your account.
-# Global cap on AI calls per day, to protect the free allowance.
+# Global cap on language-model calls per day, to protect the free Workers AI allowance (10,000 neurons/day).
 AI_DAILY_CALLS = "200"
+# Models are chosen in code with automatic fallbacks. To force one, add e.g.:
+# ASSISTANT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"

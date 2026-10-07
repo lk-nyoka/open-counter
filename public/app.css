@@ -17,7 +17,7 @@ button:hover:not(:disabled) { border-color:var(--accent) } button:disabled { opa
 button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600 }
 button.mic.on { background:var(--bad); border-color:var(--bad); color:#fff }
 input[type=text], input:not([type]) { border:1px solid var(--line); background:var(--card); padding:9px 10px; border-radius:8px; flex:1; min-width:0 }
-.note { color:var(--mute); font-size:13px } .ok { color:var(--ok) } .bad { color:var(--bad) } .hidden { display:none }
+.note { color:var(--mute); font-size:13px } .ok { color:var(--ok) } .bad { color:var(--bad) } .hidden { display:none !important }
 #chat { height:430px; overflow:auto; border:1px solid var(--line); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:8px; background:var(--card) }
 .b { max-width:88%; padding:8px 12px; border-radius:12px; white-space:pre-wrap; word-break:break-word }
 .b.me { align-self:flex-end; background:var(--me) } .b.bot { align-self:flex-start; background:var(--bot) }

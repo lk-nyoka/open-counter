@@ -1,3 +1,4 @@
+import { DateTime } from "luxon";
 import type { BusyInterval, CalendarEvent, CalendarPort, NewEvent } from "../ports.js";
 
 const BASE = "https://www.googleapis.com/calendar/v3";
@@ -22,9 +23,18 @@ const b64url = (b: ArrayBuffer | Uint8Array | string) => {
  */
 export class GoogleCalendar implements CalendarPort {
   private cached?: { token: string; exp: number };
-  constructor(private credentials: string | undefined = process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {}
+  /**
+   * Service account: pass the key JSON. An owner's own Google account (signed in with OAuth): pass
+   * `accessToken` and `busyFromEvents` (their token may not carry the freeBusy scope, so busy times are
+   * read from the event list, keeping only start/end).
+   */
+  constructor(
+    private credentials: string | undefined = process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+    private opts: { accessToken?: () => Promise<string>; busyFromEvents?: boolean; fetcher?: typeof fetch } = {},
+  ) {}
 
   private async token(): Promise<string> {
+    if (this.opts.accessToken) return this.opts.accessToken();
     const nowS = Math.floor(Date.now() / 1000);
     if (this.cached && this.cached.exp - 60 > nowS) return this.cached.token;
     const raw = this.credentials;
@@ -51,7 +61,7 @@ export class GoogleCalendar implements CalendarPort {
   }
 
   private async call(path: string, init: RequestInit = {}): Promise<Response> {
-    return fetch(`${BASE}${path}`, {
+    return (this.opts.fetcher ?? fetch)(`${BASE}${path}`, {
       ...init,
       headers: { authorization: `Bearer ${await this.token()}`, "content-type": "application/json" },
       signal: AbortSignal.timeout(8000),
@@ -59,6 +69,7 @@ export class GoogleCalendar implements CalendarPort {
   }
 
   async listBusy(calendarId: string, from: string, to: string): Promise<BusyInterval[]> {
+    if (this.opts.busyFromEvents) return this.busyFromEvents(calendarId, from, to);
     const r = await this.call("/freeBusy", {
       method: "POST",
       body: JSON.stringify({ timeMin: new Date(from).toISOString(), timeMax: new Date(to).toISOString(), items: [{ id: calendarId }] }),
@@ -68,6 +79,24 @@ export class GoogleCalendar implements CalendarPort {
     const cal = j.calendars[calendarId];
     if (!cal || cal.errors?.length) throw new Error("calendar not accessible (is it shared with the service account?)");
     return cal.busy ?? [];
+  }
+
+  /** Busy time from the event list. Only start/end leave this function: titles and descriptions are dropped here. */
+  private async busyFromEvents(calendarId: string, from: string, to: string): Promise<BusyInterval[]> {
+    const q = new URLSearchParams({ timeMin: new Date(from).toISOString(), timeMax: new Date(to).toISOString(), singleEvents: "true", orderBy: "startTime", maxResults: "250", fields: "timeZone,items(status,transparency,start,end)" });
+    const r = await this.call(`/calendars/${encodeURIComponent(calendarId)}/events?${q}`);
+    if (!r.ok) throw new Error(`events.list ${r.status}`);
+    const j = (await r.json()) as { timeZone?: string; items?: { status?: string; transparency?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } }[] };
+    const out: BusyInterval[] = [];
+    for (const e of j.items ?? []) {
+      if (e.status === "cancelled" || e.transparency === "transparent") continue; // "Show as available" never blocks
+      if (e.start?.dateTime && e.end?.dateTime) out.push({ start: e.start.dateTime, end: e.end.dateTime });
+      else if (e.start?.date && e.end?.date) {
+        const zone = j.timeZone ?? "UTC"; // an all-day event marked busy blocks the whole day in the calendar's zone
+        out.push({ start: DateTime.fromISO(e.start.date, { zone }).toISO()!, end: DateTime.fromISO(e.end.date, { zone }).toISO()! });
+      }
+    }
+    return out;
   }
 
   async getEvent(calendarId: string, id: string): Promise<CalendarEvent | null> {

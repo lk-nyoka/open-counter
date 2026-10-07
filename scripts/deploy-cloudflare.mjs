@@ -1,13 +1,25 @@
 // One-command deploy to Cloudflare Workers + D1 (free plan, no card).
 //   node scripts/deploy-cloudflare.mjs                       -> DEMO mode (in-memory calendar, no Google needed)
-//   node scripts/deploy-cloudflare.mjs --key <key.json> --calendar <calendarId>   -> real Google Calendar
+//   node scripts/deploy-cloudflare.mjs --key <key.json> --calendar <calendarId>   -> real Google Calendar for the demo business
+//   add --oauth <client_secret_....json>   -> "Sign in with Google" for owners (one-click calendar link)
+//   add --frontend https://my-frontend.app -> allow a frontend on another domain to call the API
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const arg = (n) => { const i = process.argv.indexOf(`--${n}`); return i > -1 ? process.argv[i + 1] : undefined; };
-const keyPath = arg("key"), calendar = arg("calendar");
+const keyPath = arg("key"), calendar = arg("calendar"), oauthPath = arg("oauth"), frontend = arg("frontend");
+let oauth;
+if (oauthPath) {
+  try { const j = JSON.parse(readFileSync(oauthPath, "utf8")); oauth = j.web ?? j.installed ?? j; } catch (e) { console.error(`Could not read ${oauthPath}: ${e.message}`); process.exit(2); }
+  if (!oauth.client_id || !oauth.client_secret) { console.error("That file has no client_id/client_secret. Download the OAuth client JSON from Google Cloud > Clients."); process.exit(2); }
+}
+// One stable secret per install: it signs sessions and encrypts Google tokens, so it must not change between deploys.
+const SECRETS_FILE = ".oc-secrets.json";
+const local = existsSync(SECRETS_FILE) ? JSON.parse(readFileSync(SECRETS_FILE, "utf8")) : {};
+if (!local.SESSION_SECRET) { local.SESSION_SECRET = randomBytes(32).toString("hex"); writeFileSync(SECRETS_FILE, JSON.stringify(local, null, 2)); }
 if (!!keyPath !== !!calendar) { console.error("Pass both --key and --calendar, or neither (demo mode)."); process.exit(2); }
 const demo = !keyPath;
 
@@ -17,6 +29,15 @@ const run = (args, { capture = false } = {}) => {
   return r.stdout ?? "";
 };
 const step = (m) => console.log(`\n=== ${m}`);
+
+step("Checking the code before anything goes live (type check + all tests)");
+if (spawnSync("npm", ["run", "typecheck"], { shell: true, stdio: "inherit" }).status !== 0) { console.error("\nType errors: nothing was deployed."); process.exit(1); }
+if (!process.argv.includes("--skip-tests")) {
+  if (spawnSync("npm", ["test"], { shell: true, stdio: "inherit" }).status !== 0) {
+    console.error(`\nA test failed, so nothing was deployed. (Node ${process.version}; the tests need Node 22.13 or newer. Use --skip-tests only if you know why.)`);
+    process.exit(1);
+  }
+}
 
 step("Generating business specs");
 if (spawnSync("npm", ["run", "gen:specs"], { shell: true, stdio: "inherit" }).status !== 0) process.exit(1);
@@ -38,17 +59,35 @@ if (!id) { console.error("Could not read the D1 database id."); process.exit(1);
 const toml = readFileSync("wrangler.toml", "utf8").replace(/database_id\s*=\s*"[^"]*"/, `database_id = "${id}"`);
 writeFileSync("wrangler.toml", toml);
 
-step("Creating the locks table");
+step("Creating or updating the database tables");
 run(["d1", "execute", "open-counter", "--remote", "--file=schema.sql"]);
 
 step(`Deploying the Worker (${demo ? "DEMO mode" : "Google Calendar mode"})`);
-run(["deploy", "--var", `DEMO_MODE:${demo ? "1" : "0"}`]);
+const deployOut = run(["deploy", "--var", `DEMO_MODE:${demo ? "1" : "0"}`], { capture: true });
+process.stdout.write(deployOut);
+const liveUrl = (/https:\/\/[a-z0-9.-]+\.workers\.dev/i.exec(deployOut) || [])[0];
 
-if (!demo) {
-  step("Storing the Google credentials as encrypted secrets");
+step("Storing secrets (encrypted by Cloudflare)");
+{
+  const secrets = { SESSION_SECRET: local.SESSION_SECRET };
+  if (!demo) Object.assign(secrets, { GOOGLE_SERVICE_ACCOUNT_JSON: readFileSync(keyPath, "utf8"), CALENDAR_ID_DEMO_BARBER: calendar });
+  if (oauth) Object.assign(secrets, { GOOGLE_OAUTH_CLIENT_ID: oauth.client_id, GOOGLE_OAUTH_CLIENT_SECRET: oauth.client_secret });
+  if (frontend) secrets.FRONTEND_ORIGINS = frontend;
   const tmp = join(tmpdir(), `oc-secrets-${Date.now()}.json`);
-  writeFileSync(tmp, JSON.stringify({ GOOGLE_SERVICE_ACCOUNT_JSON: readFileSync(keyPath, "utf8"), CALENDAR_ID_DEMO_BARBER: calendar }));
+  writeFileSync(tmp, JSON.stringify(secrets));
   try { run(["secret", "bulk", tmp]); } finally { rmSync(tmp, { force: true }); }
+  console.log(`Stored: ${Object.keys(secrets).join(", ")}`);
+  if (oauth && liveUrl) console.log(`\nGoogle sign-in: make sure this redirect URI is listed on your OAuth client:\n  ${liveUrl}/auth/google/callback`);
 }
 
+const expected = (/BUILD = "([^"]+)"/.exec(readFileSync("src/api.ts", "utf8")) || [])[1];
+if (liveUrl) {
+  step("Checking what is live now");
+  let live = "unknown";
+  for (let i = 0; i < 6 && live !== expected; i++) {
+    try { live = (await (await fetch(`${liveUrl}/api/config`, { cache: "no-store" })).json()).build; } catch { live = "unreachable"; }
+    if (live !== expected) await new Promise((r) => setTimeout(r, 3000));
+  }
+  console.log(live === expected ? `Live build: ${live}  (matches this code)` : `WARNING: live build is "${live}", expected "${expected}". Run the deploy again.`);
+}
 console.log(`\nDone. Open the https://open-counter.<your-subdomain>.workers.dev URL printed above in a browser.\nSmoke test (PowerShell):  $env:MCP_API_URL="<that URL>/mcp"; npx tsx scripts/smoke-test.ts`);

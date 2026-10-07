@@ -44,9 +44,32 @@ export interface LockPort {
   release(businessId: string, units: string[], bookingId: string): Promise<void>;
 }
 
+/** What the owner's dashboard shows. Written after a booking succeeds; never read by the model. */
+export interface BookingRecord {
+  id: string;
+  businessSlug: string;
+  start: string;
+  end: string;
+  serviceId: string;
+  serviceName: string;
+  price: number;
+  currency: string;
+  customerName: string;
+  customerPhone?: string;
+  /** Where it came from: "voice" (assistant page), "web", "mcp" (any other MCP client, e.g. Alexa+), "owner". */
+  channel: string;
+}
+
+export interface BookingLog {
+  record(r: BookingRecord): Promise<void>;
+  cancelled(businessSlug: string, id: string, atEpochSec: number): Promise<void>;
+}
+
 export interface Deps {
   calendar: CalendarPort;
   locks: LockPort;
   now: () => Date;
   newId: () => string;
+  log?: BookingLog;
+  channel?: string;
 }

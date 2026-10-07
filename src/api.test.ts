@@ -70,25 +70,27 @@ test("publish -> live MCP endpoint -> isolation -> unpublish", async () => {
   assert.equal(gone.status, 404);
 });
 
-test("assistant endpoint: normalised reply, unknown business, model failure", async () => {
+test("assistant endpoint: understanding only, and it never fails because of the model", async () => {
   const env = mkEnv();
-  const r: any = await (await api(env, "/api/assistant", { business: "demo-barber", messages: [{ role: "user", content: "I'd like to book a haircut" }] })).json();
-  assert.equal(r.tool, "check_availability"); assert.match(r.date, /^\d{4}-\d\d-\d\d$/);
-  assert.equal((await api(env, "/api/assistant", { business: "nope", messages: [{ role: "user", content: "hi" }] })).status, 404);
-  assert.equal((await api(env, "/api/assistant", { business: "demo-barber", messages: [] })).status, 400);
-  const broken = mkEnv({ AI: { run: async () => ({ response: "I am not JSON at all" }) } });
-  assert.equal((await api(broken, "/api/assistant", { business: "demo-barber", messages: [{ role: "user", content: "hi" }] })).status, 502);
-  const noAi = mkEnv({ AI: undefined });
-  assert.equal((await api(noAi, "/api/assistant", { business: "demo-barber", messages: [{ role: "user", content: "hi" }] })).status, 503);
+  const r: any = await (await api(env, "/api/assistant", { business: "demo-barber", text: "I'd like to book a haircut tomorrow at 10am", awaiting: null })).json();
+  assert.equal(r.intent, "book"); assert.equal(r.serviceId, "haircut"); assert.equal(r.time, "10:00"); assert.match(r.today, /^\d{4}-\d\d-\d\d$/);
+  assert.equal((await api(env, "/api/assistant", { business: "nope", text: "hi" })).status, 404);
+  assert.equal((await api(env, "/api/assistant", { business: "demo-barber", text: "" })).status, 400);
+  for (const AI of [{ run: async () => ({ response: "I am not JSON at all" }) }, { run: async () => { throw new Error("5007: no such model"); } }, undefined]) {
+    const res = await api(mkEnv({ AI }), "/api/assistant", { business: "demo-barber", text: "mmm the usual thing" });
+    assert.equal(res.status, 200, "model trouble degrades to the parser, never an error");
+    assert.equal(((await res.json()) as any).intent, "none");
+  }
 });
 
 test("abuse controls: cross-origin, daily cap, hostile draft", async () => {
   const env = mkEnv({ AI_DAILY_CALLS: "2" });
   const evil = await worker.fetch(new Request(`${O}/api/interview`, { method: "POST", headers: { origin: "https://evil.example" }, body: JSON.stringify({ text: "hi" }) }), env);
   assert.equal(evil.status, 403);
-  const post = () => api(env, "/api/assistant", { business: "demo-barber", messages: [{ role: "user", content: "hello" }] });
-  assert.equal((await post()).status, 200); assert.equal((await post()).status, 200);
-  const third = await post(); assert.equal(third.status, 429); assert.equal(((await third.json()) as any).error, "daily_limit");
+  const post = async () => (await api(env, "/api/interview", { text: "hello" })).json() as Promise<any>;
+  assert.equal((await post()).usedModel, true); assert.equal((await post()).usedModel, true);
+  const third = await post(); assert.equal(third.usedModel, false, "over the daily AI cap the interview keeps working without the model");
+  const cap = await api(env, "/api/ai-check"); assert.equal(cap.status, 429); assert.equal(((await cap.json()) as any).error, "daily_limit");
 
   const e2 = mkEnv();
   const r: any = await (await api(e2, "/api/interview", { text: "hi", draft: { name: "<script>alert(1)</script>Joe", timezone: "Not/AZone", currency: "zar", hours: new Array(40).fill({ day: 1, open: "09:00", close: "17:00" }), services: [{ name: "x", durationMin: 99999, price: -5 }] } })).json();
@@ -103,10 +105,6 @@ test("ai-check and the failure detail make a bad model easy to diagnose", async 
   const r: any = await (await api(env, "/api/ai-check")).json();
   assert.ok(r.results.some((x: any) => x.ok && x.model.includes("70b")));
   assert.ok(r.results.some((x: any) => !x.ok && /unavailable/.test(x.error)));
-  const broken = mkEnv({ AI: { run: async () => { throw new Error("5007: no such model"); } } });
-  const res = await api(broken, "/api/assistant", { business: "demo-barber", messages: [{ role: "user", content: "hi" }] });
-  const j: any = await res.json();
-  assert.equal(res.status, 502); assert.match(j.detail.join(" "), /5007/);
 });
 
 test("transcribe: audio in, text out, with a vocabulary hint; bad input rejected", async () => {

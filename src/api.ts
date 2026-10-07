@@ -2,12 +2,16 @@ import type { D1Like } from "./adapters/d1.js";
 import { AiError, probeModels, type AiBinding, type Msg } from "./ai.js";
 import type { CalendarPort } from "./ports.js";
 import { BusinessSpecSchema, type BusinessSpec } from "./spec.js";
-import { assistantTurn } from "./assistant.js";
+import { understand, type Awaiting } from "./nlu.js";
+import { DateTime } from "luxon";
 import { GREETING, interviewTurn, missing, sanitizeDraft } from "./interview.js";
 import { allow, countPublished, deletePublished, putPublished } from "./store.js";
 import { serviceAccountEmail } from "./adapters/google.js";
+import { allowedOrigins, handleAccounts, type AccountsEnv } from "./accounts.js";
+import { oauthConfigured } from "./auth.js";
+import type { Deps } from "./ports.js";
 
-export interface ApiEnv {
+export interface ApiEnv extends AccountsEnv {
   DB: D1Like;
   AI?: AiBinding;
   DEMO_MODE?: string;
@@ -22,6 +26,9 @@ export interface ApiCtx {
   resolve(slug: string): Promise<BusinessSpec | null>;
   calendar: CalendarPort;
   now(): Date;
+  /** Everything the booking tools need for one business; `channel` tags where a booking came from. */
+  deps(spec: BusinessSpec, channel: string): Deps;
+  fetch?: typeof fetch;
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -29,8 +36,11 @@ const hex = (n: number) => [...crypto.getRandomValues(new Uint8Array(n))].map((b
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "business";
 
 // Tried in order; the first one that works is remembered. Override with a comma-separated list in ASSISTANT_MODEL / INTERVIEW_MODEL.
-const ASSISTANT_MODELS = ["@cf/meta/llama-3.1-8b-instruct-fp8", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct"];
+// Both lists start with the strongest model that supports JSON-schema mode on the free plan (see /api/ai-check).
+const ASSISTANT_MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"];
 const INTERVIEW_MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"];
+/** Shown on the pages, so you can see at a glance which version is live. Bump on every release. */
+export const BUILD = "2026-10-08-v3";
 const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
 const models = (env: string | undefined, dflt: string[]) => { const l = (env ?? "").split(",").map((x) => x.trim()).filter(Boolean); return l.length ? l : dflt; };
 const UNITS = { llm: 3, stt: 1 }; // the daily cap is counted in units: one language-model call = 3, one transcription = 1
@@ -62,17 +72,39 @@ async function aiAllowed(env: ApiEnv, req: Request, cost = UNITS.llm): Promise<R
   return null;
 }
 
+/** CORS for allow-listed frontends on other domains (FRONTEND_ORIGINS). Same-site pages need none of this. */
+function withCors(res: Response, origin: string | null, env: ApiEnv): Response {
+  if (!origin || !allowedOrigins(env).includes(origin)) return res;
+  const h = new Headers(res.headers);
+  h.set("access-control-allow-origin", origin);
+  h.set("access-control-allow-credentials", "true");
+  h.append("vary", "origin");
+  return new Response(res.body, { status: res.status, headers: h });
+}
+
 export async function handleApi(req: Request, env: ApiEnv, ctx: ApiCtx): Promise<Response> {
+  const origin = req.headers.get("origin");
+  if (req.method === "OPTIONS") {
+    if (!origin || !allowedOrigins(env).includes(origin)) return new Response(null, { status: 403 });
+    return withCors(new Response(null, { status: 204, headers: { "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS", "access-control-allow-headers": "content-type, authorization", "access-control-max-age": "86400" } }), origin, env);
+  }
+  return withCors(await route(req, env, ctx), origin, env);
+}
+
+async function route(req: Request, env: ApiEnv, ctx: ApiCtx): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
-  // Same-origin only: these endpoints spend the free AI allowance.
+  // Writes only from this site or an allow-listed frontend: several endpoints spend the free AI allowance.
   const origin = req.headers.get("origin");
-  if (req.method !== "GET" && origin && origin !== url.origin) return json({ error: "forbidden" }, 403);
+  if (req.method !== "GET" && origin && origin !== url.origin && !allowedOrigins(env).includes(origin)) return json({ error: "forbidden" }, 403);
 
   try {
+    const acc = await handleAccounts(req, env, { resolve: ctx.resolve, deps: ctx.deps, now: ctx.now, fetch: ctx.fetch });
+    if (acc) return acc;
+
     if (path === "/api/config" && req.method === "GET") {
-      return json({ demo: env.DEMO_MODE === "1" || !env.GOOGLE_SERVICE_ACCOUNT_JSON, serviceAccountEmail: serviceAccountEmail(env.GOOGLE_SERVICE_ACCOUNT_JSON) ?? null, ai: !!env.AI, greeting: GREETING, build: "2026-10-07-c" });
+      return json({ demo: env.DEMO_MODE === "1" || !env.GOOGLE_SERVICE_ACCOUNT_JSON, serviceAccountEmail: serviceAccountEmail(env.GOOGLE_SERVICE_ACCOUNT_JSON) ?? null, ai: !!env.AI, googleSignIn: oauthConfigured(env), greeting: GREETING, build: BUILD });
     }
 
     if (path === "/api/interview" && req.method === "POST") {
@@ -80,20 +112,24 @@ export async function handleApi(req: Request, env: ApiEnv, ctx: ApiCtx): Promise
       if (!body) return json({ error: "bad_request" }, 400);
       const text = String(body.text ?? "").slice(0, 1200).trim();
       if (!text) return json({ reply: GREETING, draft: sanitizeDraft(body.draft), missing: missing(sanitizeDraft(body.draft)), complete: false, warnings: [] });
-      const blocked = await aiAllowed(env, req); if (blocked) return blocked;
-      try { return json(await interviewTurn(env.AI!, models(env.INTERVIEW_MODEL, INTERVIEW_MODELS), body.draft, cleanMsgs(body.messages), text)); }
-      catch (e) { return aiFailure(e, "interview"); }
+      // The model is optional here too: over budget or down, the owner's own words are still parsed and validated.
+      const ai = env.AI && !(await aiAllowed(env, req)) ? env.AI : undefined;
+      return json(await interviewTurn(ai, models(env.INTERVIEW_MODEL, INTERVIEW_MODELS), body.draft, cleanMsgs(body.messages), text));
     }
 
+    // Understanding only: the page's dialog code decides every reply from real MCP results.
+    // The parser always runs; the language model is used only when the parser is unsure, and only within the AI budget.
     if (path === "/api/assistant" && req.method === "POST") {
       const body = await readJson(req);
       const spec = body && typeof body.business === "string" ? await ctx.resolve(body.business) : null;
       if (!spec) return json({ error: "unknown_business" }, 404);
-      const msgs = cleanMsgs(body.messages);
-      if (!msgs.length || msgs[msgs.length - 1].role !== "user") return json({ error: "bad_request" }, 400);
-      const blocked = await aiAllowed(env, req); if (blocked) return blocked;
-      try { return json(await assistantTurn(env.AI!, models(env.ASSISTANT_MODEL, ASSISTANT_MODELS), spec, msgs, ctx.now())); }
-      catch (e) { return aiFailure(e, "assistant"); }
+      const text = typeof body.text === "string" ? body.text.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 500) : "";
+      if (!text) return json({ error: "bad_request" }, 400);
+      const AW = ["service", "date", "time", "name", "confirm", "code", "cancelConfirm", "offerBook"];
+      const awaiting = (AW.includes(body.awaiting) ? body.awaiting : null) as Awaiting;
+      const now = ctx.now();
+      const r = await understand(env.AI, models(env.ASSISTANT_MODEL, ASSISTANT_MODELS), spec, text, now, awaiting, async () => !(await aiAllowed(env, req)));
+      return json({ ...r, today: DateTime.fromJSDate(now, { zone: spec.timezone }).toISODate() });
     }
 
     // Diagnostics: which models answer on this account, and in which mode? Open /api/ai-check in a browser.

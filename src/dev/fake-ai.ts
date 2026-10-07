@@ -19,25 +19,12 @@ export class FakeAI implements AiBinding {
     const sys = msgs[0].content;
     const last = msgs[msgs.length - 1].content;
     if (sys.startsWith("You set up a booking assistant")) {
+      if (process.env.FAKE_REPLY_ONLY) return { response: { reply: "Recorded everything you said." } }; // a model that records nothing
       const turn = msgs.filter((m) => m.role === "user").length - 1;
       return { response: INTERVIEW_TURNS[Math.min(turn, INTERVIEW_TURNS.length - 1)] };
     }
-    // assistant
-    const svc = /^(\S+): /m.exec(sys)?.[1] ?? "haircut";
-    const today = /Today is \S+ (\d{4}-\d\d-\d\d)/.exec(sys)?.[1] ?? "2026-10-07";
-    const d = new Date(today + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + 2); while ([0, 6].includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() + 1);
-    const date = d.toISOString().slice(0, 10);
-    const hex = /\b[0-9a-f]{32}\b/.exec(last)?.[0];
-    if (last.startsWith("TOOL_RESULT check_availability")) {
-      const times = last.match(/\d\d:\d\d/g)?.slice(0, 3) ?? [];
-      return { response: { say: times.length ? `I have ${times.join(", ")} available. Which suits you?` : "Sorry, nothing is free that day.", tool: "none" } };
-    }
-    if (last.startsWith("TOOL_RESULT book")) return { response: { say: /"ok":true/.test(last) ? "All booked. See you then!" : "I couldn't book that. Shall we try another time?", tool: "none" } };
-    if (last.startsWith("TOOL_RESULT cancel")) return { response: { say: "Your booking is cancelled.", tool: "none" } };
-    if (hex) return { response: { say: "Cancelling that now.", tool: "cancel", bookingId: hex } };
-    const time = /\b(\d\d:\d\d)\b/.exec(last)?.[1];
-    if (time) return { response: { say: `Booking ${time} for you.`, tool: "book", serviceId: svc, date, time, customerName: /for (\w+)/i.exec(last)?.[1] ?? "Guest" } };
-    if (/book|appointment|haircut/i.test(last)) return { response: { say: "Let me check what's free.", tool: "check_availability", serviceId: svc, date } };
-    return { response: { say: "I can help you book an appointment. What would you like?", tool: "none" } };
+    // Understanding (NLU): a deliberately weak stand-in, so tests prove the deterministic parser carries the load.
+    if (/^ ?(i|we) (had|want|need) (the same|my usual)/i.test(last)) return { response: { intent: "book", service: "Haircut" } };
+    return { response: { intent: "none" } };
   }
 }

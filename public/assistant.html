@@ -7,10 +7,10 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<nav><a href="/">Protocol demo</a><a class="cur" href="/assistant.html">Voice assistant</a><a href="/interview.html">Set up your business</a></nav>
+<nav><a href="/">Home</a><a href="/interview.html">Set up a business</a><a href="/dashboard.html">Owner dashboard</a><a class="cur" href="/assistant.html">Voice assistant</a><a href="/book.html">Book online</a><a href="/protocol.html">MCP protocol</a></nav>
 <header>
   <h1 id="title">Voice assistant</h1>
-  <p class="sub">A simulated Alexa-style assistant. A language model decides what to say; every action goes through the business's MCP server, and the server enforces the rules.</p>
+  <p class="sub">A simulated Alexa-style assistant. AI turns speech into text and understands what you mean; every answer comes from the business's MCP server, which enforces the owner's rules.</p>
 </header>
 <main>
   <section>
@@ -27,19 +27,21 @@
       <span id="vnote"></span>
     </div>
     <p class="note" id="status"></p>
+    <p class="note" id="build" style="font-size:11px"></p>
   </section>
   <section>
     <h2>MCP protocol log</h2>
     <div id="log"></div>
   </section>
 </main>
-<script>
+<script type="module">
+import { createDialog } from "/dialog.js";
 const slug = new URLSearchParams(location.search).get("business") || "demo-barber";
 const ENDPOINT = `/mcp/${encodeURIComponent(slug)}`;
 const $ = (id) => document.getElementById(id);
-let rpcId = 0, info = null, history = [], avail = {}, gate = null, listening = false, busy = false;
+let rpcId = 0, info = null, dialog = null, gate = null, listening = false, busy = false;
 
-/* ---------- MCP client (this page talks Streamable HTTP to the server) ---------- */
+/* ---------- MCP client: this page speaks Streamable HTTP to the business's server ---------- */
 function log(kind, label, obj) {
   const d = document.createElement("div"), l = document.createElement("span"), b = document.createElement("span");
   l.className = "lbl"; l.textContent = label + "\n"; b.className = kind; b.textContent = JSON.stringify(obj, null, 1) + "\n\n";
@@ -48,12 +50,23 @@ function log(kind, label, obj) {
 async function rpc(method, params) {
   const body = { jsonrpc: "2.0", id: ++rpcId, method, params };
   log("req", `-> ${method}`, body);
-  const r = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify(body) });
+  const r = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "x-oc-channel": "voice" }, body: JSON.stringify(body) });
   const j = await r.json(); log("res", `<- ${r.status}`, j);
   if (j.error) throw new Error(j.error.message);
   return j.result;
 }
-const tool = async (name, args) => (await rpc("tools/call", { name, arguments: args })).structuredContent;
+const STATUS = { check_availability: "Checking the diary…", book: "Booking…", cancel: "Cancelling…" };
+async function tool(name, args) {
+  setStatus(STATUS[name] || "Working…");
+  try { return (await rpc("tools/call", { name, arguments: args })).structuredContent; }
+  catch { return { ok: false, message: "The booking system could not be reached." }; }
+}
+async function understand(text, awaiting) {
+  setStatus("Understanding…");
+  const r = await fetch("/api/assistant", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ business: slug, text, awaiting }) });
+  if (!r.ok) throw new Error("server " + r.status);
+  return r.json();
+}
 
 /* ---------- chat UI ---------- */
 function bubble(kind, text) {
@@ -61,6 +74,50 @@ function bubble(kind, text) {
   $("chat").append(d); $("chat").scrollTop = $("chat").scrollHeight; return d;
 }
 const setStatus = (t) => ($("status").textContent = t || "");
+function clearGate() { if (gate) { gate.remove(); gate = null; } }
+function showGate(c) {
+  clearGate();
+  const card = document.createElement("div"); card.className = "card gate";
+  const t = document.createElement("div"); t.textContent = `Confirm booking: ${c.service}, ${c.when}, ${c.price} ${c.currency}, for ${c.name}.`;
+  const row = document.createElement("div"); row.className = "row";
+  const yes = document.createElement("button"), no = document.createElement("button");
+  yes.className = "primary"; yes.textContent = "Yes, book it"; no.textContent = "No";
+  yes.onclick = () => run(() => dialog.confirm(true), "Yes");
+  no.onclick = () => run(() => dialog.confirm(false), "No");
+  row.append(yes, no); card.append(t, row); $("chat").append(card); $("chat").scrollTop = $("chat").scrollHeight;
+  gate = card;
+}
+function showBooking(b) {
+  const c = document.createElement("div"); c.className = "card";
+  const t = document.createElement("div"); t.textContent = `Booked: ${b.service}, ${b.startLocal}`;
+  const code = document.createElement("div"); code.className = "note"; code.append("Booking code (needed to cancel): ");
+  const k = document.createElement("code"); k.textContent = b.bookingId; code.append(k);
+  c.append(t, code); $("chat").append(c); $("chat").scrollTop = $("chat").scrollHeight;
+}
+
+/** One turn: the dialog code decides; the page only shows and speaks the result. */
+async function run(fn, shownText) {
+  if (busy || !dialog) return;
+  busy = true; $("send").disabled = true;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if (shownText) bubble("me", shownText);
+  clearGate();
+  let r;
+  try { r = await fn(); }
+  catch { r = { say: "Sorry, I couldn't reach the server. Please try again." }; }
+  finally { busy = false; $("send").disabled = false; setStatus(""); }
+  bubble("bot", r.say);
+  if (r.booked) showBooking(r.booked);
+  if (r.confirm) showGate(r.confirm);
+  await speak(r.say);
+  if ($("hands").checked) listen();
+}
+function submit(text) {
+  text = (text || "").trim(); if (!text) return;
+  run(() => dialog.handle(text), text);
+}
+$("send").onclick = () => { const t = $("text").value; $("text").value = ""; submit(t); };
+$("text").addEventListener("keydown", (e) => { if (e.key === "Enter") $("send").click(); });
 
 /* ---------- voice: record -> Whisper (server) -> text; browser recognition is the fallback ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -142,110 +199,24 @@ function listenBrowser() {
   try { rec.start(); } catch {}
 }
 function listen() {
-  if (listening || (busy && !gate)) return;
+  if (listening || busy) return;
   speechSynthesis && speechSynthesis.cancel();
   if (useWhisper) recordOnce(); else if (SR) listenBrowser();
 }
 $("mic").onclick = () => { if (!listening) return listen(); if (stopRec) stopRec(); else if (rec) rec.stop(); };
 
-/* ---------- confirmation gate: the human, not the model, says yes ---------- */
-function confirmBooking(service, when, price, currency, who) {
-  return new Promise((resolve) => {
-    const c = document.createElement("div"); c.className = "card gate";
-    const t = document.createElement("div"); t.textContent = `Confirm booking: ${service}, ${when}, ${price} ${currency}, for ${who}.`;
-    const row = document.createElement("div"); row.className = "row";
-    const yes = document.createElement("button"), no = document.createElement("button");
-    yes.className = "primary"; yes.textContent = "Yes, book it"; no.textContent = "No";
-    row.append(yes, no); c.append(t, row); $("chat").append(c); $("chat").scrollTop = $("chat").scrollHeight;
-    const done = (v) => { gate = null; c.remove(); resolve(v); };
-    gate = { yes: () => done(true), no: () => done(false) };
-    yes.onclick = () => gate.yes(); no.onclick = () => gate.no();
-    speak(`Please confirm: ${service}, ${when}, ${price} ${currency}. Say yes or no.`).then(() => $("hands").checked && listen());
-  });
-}
-const YES = /^\s*(yes|yeah|yep|yup|sure|confirm|ok|okay|book it|go ahead)\b/i, NO = /^\s*(no|nope|nah|cancel|don'?t|stop)\b/i;
-
-/* ---------- tools the model may ask for (all go through MCP) ---------- */
-const compact = (o) => JSON.stringify(o).slice(0, 900);
-async function runTool(r) {
-  try {
-    if (r.tool === "check_availability") {
-      const svc = info.services.find((s) => s.id === r.serviceId);
-      if (!svc) return { ok: false, error: "unknown serviceId" };
-      if (!/^\d{4}-\d\d-\d\d$/.test(r.date || "")) return { ok: false, error: "date must be YYYY-MM-DD" };
-      const a = await tool("check_availability", { serviceId: svc.id, date: r.date });
-      if (!a.ok) return { ok: false, error: a.message };
-      avail[`${svc.id}|${r.date}`] = Object.fromEntries(a.slots.map((s) => [s.start.slice(11, 16), s]));
-      return { ok: true, date: r.date, service: svc.id, freeTimes: a.slots.map((s) => s.start.slice(11, 16)), note: a.count ? undefined : "no free times that day" };
-    }
-    if (r.tool === "get_quote") return await tool("get_quote", { serviceId: r.serviceId || "" });
-    if (r.tool === "book") {
-      const svc = info.services.find((s) => s.id === r.serviceId);
-      const slot = (avail[`${r.serviceId}|${r.date}`] || {})[r.time];
-      if (!svc || !slot) return { ok: false, error: "that time was not in the availability list; call check_availability first" };
-      if (!r.customerName) return { ok: false, error: "customer name is missing; ask for it" };
-      const yes = await confirmBooking(svc.name, slot.startLocal, svc.price, info.currency, r.customerName);
-      if (!yes) return { ok: false, declined: true, error: "the customer declined" };
-      const b = await tool("book", { serviceId: svc.id, start: slot.start, customerName: r.customerName, customerPhone: r.customerPhone, customerConfirmed: true, idempotencyKey: crypto.randomUUID() });
-      if (b.ok) showBooking(b);
-      return b.ok ? { ok: true, when: b.startLocal, bookingCode: b.bookingId } : { ok: false, error: b.message };
-    }
-    if (r.tool === "cancel") {
-      const c = await tool("cancel", { bookingId: r.bookingId || "" });
-      return c.ok ? { ok: true } : { ok: false, error: c.message };
-    }
-    return { ok: false, error: "unknown tool" };
-  } catch (e) { return { ok: false, error: "the booking system could not be reached" }; }
-}
-function showBooking(b) {
-  const c = document.createElement("div"); c.className = "card";
-  const t = document.createElement("div"); t.textContent = `Booked: ${b.service}, ${b.startLocal}`;
-  const code = document.createElement("div"); code.className = "note"; code.append("Booking code (needed to cancel): "); const k = document.createElement("code"); k.textContent = b.bookingId; code.append(k);
-  c.append(t, code); $("chat").append(c); $("chat").scrollTop = $("chat").scrollHeight;
-}
-
-/* ---------- agent loop: model decides, MCP acts ---------- */
-async function turn() {
-  for (let i = 0; i < 6; i++) {
-    setStatus("Thinking…");
-    let r;
-    try {
-      const res = await fetch("/api/assistant", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ business: slug, messages: history }) });
-      const j = await res.json();
-      if (!res.ok) { bubble("sys", (j.message || "The assistant is unavailable right now.") + (Array.isArray(j.detail) && j.detail.length ? " (" + j.detail.slice(0, 2).join("; ").slice(0, 160) + " — see /api/ai-check)" : "")); if (res.status === 429 || res.status === 503) { const a = document.createElement("a"); a.href = "/"; a.textContent = "Use the manual booking page instead"; $("chat").append(a); } setStatus(""); return; }
-      r = j;
-    } catch { bubble("sys", "Could not reach the assistant."); setStatus(""); return; }
-    history.push({ role: "assistant", content: JSON.stringify({ say: r.say, tool: r.tool, serviceId: r.serviceId, date: r.date, time: r.time, customerName: r.customerName, bookingId: r.bookingId }) });
-    if (r.tool === "none") { bubble("bot", r.say); setStatus(""); await speak(r.say); return true; }
-    if (r.say) bubble("bot interim", r.say);
-    setStatus("Checking with the booking system…");
-    const result = await runTool(r);
-    history.push({ role: "user", content: `TOOL_RESULT ${r.tool}: ${compact(result)}` });
-  }
-  bubble("sys", "I got stuck. Could you rephrase that?"); setStatus("");
-}
-async function submit(text) {
-  text = (text || "").trim(); if (!text) return;
-  if (gate) { if (YES.test(text)) gate.yes(); else if (NO.test(text)) gate.no(); else bubble("sys", "Please answer yes or no to confirm the booking."); return; }
-  if (busy) return;
-  busy = true; speechSynthesis && speechSynthesis.cancel();
-  bubble("me", text); history.push({ role: "user", content: text });
-  let again = false;
-  try { again = await turn(); } finally { busy = false; }
-  if (again && $("hands").checked) listen();
-}
-$("send").onclick = () => { const t = $("text").value; $("text").value = ""; submit(t); };
-$("text").addEventListener("keydown", (e) => { if (e.key === "Enter") $("send").click(); });
 
 /* ---------- start ---------- */
 (async () => {
   try {
-    await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "open-counter-assistant", version: "0.2.0" } });
+    await rpc("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "open-counter-assistant", version: "0.3.0" } });
     await rpc("tools/list", {});
-    info = await tool("get_business_info", {});
+    info = (await rpc("tools/call", { name: "get_business_info", arguments: {} })).structuredContent;
     $("title").textContent = info.name;
-    bubble("bot", `Hi, I'm the booking assistant for ${info.name}. What can I do for you?`);
-    speak(`Hi, I'm the booking assistant for ${info.name}. What can I do for you?`);
+    dialog = createDialog({ info, tool, understand });
+    fetch("/api/config").then((r) => r.json()).then((c) => ($("build").textContent = "build " + c.build)).catch(() => {});
+    const hello = dialog.greeting();
+    bubble("bot", hello); speak(hello);
   } catch (e) { bubble("sys", "Could not load this business. Check the link."); $("send").disabled = true; $("mic").disabled = true; }
 })();
 </script>

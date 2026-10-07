@@ -20,6 +20,7 @@ const REFUSAL_TEXT: Record<Refusal, string> = {
 };
 
 const DAY = 86_400_000;
+const PAUSED = "This business is not taking bookings through the assistant right now. Please contact them directly.";
 
 function findService(spec: BusinessSpec, serviceId: string) {
   return spec.services.find((s) => s.id === serviceId);
@@ -34,6 +35,7 @@ export function getBusinessInfo(spec: BusinessSpec) {
     hours: spec.hours,
     minNoticeMin: spec.minNoticeMin,
     maxAdvanceDays: spec.maxAdvanceDays,
+    acceptingBookings: spec.acceptingBookings,
     services: spec.services.map((s) => ({ id: s.id, name: s.name, durationMin: s.durationMin, price: s.price, bookableByVoice: s.bookableByVoice })),
   };
 }
@@ -56,6 +58,7 @@ export async function checkAvailability(spec: BusinessSpec, deps: Deps, input: {
   const s = findService(spec, input.serviceId);
   if (!s) return fail("unknown_service", "Unknown service.");
   if (!s.bookableByVoice) return fail("not_bookable_by_voice", "This service cannot be booked by voice. Please contact the business.");
+  if (!spec.acceptingBookings) return fail("paused", PAUSED);
   const day = DateTime.fromISO(input.date, { zone: spec.timezone }).startOf("day");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !day.isValid) return fail("invalid_date", "Date must be YYYY-MM-DD.");
 
@@ -81,6 +84,7 @@ export async function book(spec: BusinessSpec, deps: Deps, input: BookInput) {
   const s = findService(spec, input.serviceId);
   if (!s) return fail("unknown_service", "Unknown service.");
   if (!s.bookableByVoice) return fail("not_bookable_by_voice", "This service cannot be booked by voice. Please contact the business.");
+  if (!spec.acceptingBookings) return fail("paused", PAUSED);
   if (input.customerConfirmed !== true) {
     return fail(
       "confirmation_required",
@@ -141,6 +145,11 @@ export async function book(spec: BusinessSpec, deps: Deps, input: BookInput) {
     console.error("book failed", err);
     return fail("calendar_error", "Could not complete the booking. Nothing was booked; please try again.");
   }
+  // The owner's ledger (dashboard). A ledger hiccup must not undo a booking that is already in the calendar.
+  await deps.log?.record({
+    id: bookingId, businessSlug: spec.slug, start: startIso, end: endIso, serviceId: s.id, serviceName: s.name, price: s.price,
+    currency: spec.currency, customerName: name, customerPhone: phone || undefined, channel: deps.channel ?? "mcp",
+  }).catch((e) => console.error("booking ledger write failed", e));
   return confirmation(spec, bookingId, s.name, pre.start, pre.end, false);
 }
 
@@ -168,5 +177,6 @@ export async function cancel(spec: BusinessSpec, deps: Deps, input: { bookingId:
   const units = lockUnits(spec, ev.start, ev.end);
   await deps.calendar.deleteEvent(spec.calendarId, input.bookingId);
   await deps.locks.release(spec.slug, units, input.bookingId); // free the slot for others right away
+  await deps.log?.cancelled(spec.slug, input.bookingId, Math.floor(deps.now().getTime() / 1000)).catch((e) => console.error("ledger cancel failed", e));
   return { ok: true as const, cancelled: true as const, bookingId: input.bookingId };
 }

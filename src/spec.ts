@@ -27,6 +27,8 @@ export const BusinessSpecSchema = z.object({
   /** Gap kept free after each appointment. */
   bufferMin: z.number().int().nonnegative().max(120).default(0),
   services: z.array(ServiceSchema).min(1),
+  /** The owner's on/off switch for assistant bookings (the dashboard's "pause"). */
+  acceptingBookings: z.boolean().default(true),
 });
 
 export type BusinessSpec = z.infer<typeof BusinessSpecSchema>;

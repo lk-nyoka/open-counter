@@ -2,3 +2,14 @@ node_modules
 dist
 .aws-sam
 src/specs.generated.ts
+
+# Secrets: never commit service-account keys or env files
+open-counter-hackathon-*.json
+*service-account*.json
+*-key.json
+.env
+.env.*
+
+# Local deploy secrets and Google OAuth client files
+.oc-secrets.json
+client_secret_*.json

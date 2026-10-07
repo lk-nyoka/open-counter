@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<nav><a href="/">Protocol demo</a><a href="/assistant.html">Voice assistant</a><a class="cur" href="/interview.html">Set up your business</a></nav>
+<nav><a href="/">Home</a><a class="cur" href="/interview.html">Set up a business</a><a href="/dashboard.html">Owner dashboard</a><a href="/assistant.html">Voice assistant</a><a href="/book.html">Book online</a><a href="/protocol.html">MCP protocol</a></nav>
 <header>
   <h1>Put your business on voice assistants</h1>
   <p class="sub">Answer a few questions in plain language. An AI interviewer builds your booking setup, and you check it before anything goes live.</p>
@@ -18,6 +18,7 @@
     <div id="chat" aria-live="polite"></div>
     <div class="row"><input id="text" placeholder="Type your answer and press Enter" maxlength="1200" autocomplete="off"><button id="send" class="primary">Send</button></div>
     <p class="note" id="status"></p>
+    <div class="row"><button id="reset" title="Clear the draft and start again">Start over</button><span class="note" id="build" style="font-size:11px"></span></div>
   </section>
   <div>
     <section>
@@ -26,22 +27,16 @@
       <div id="todo"></div>
     </section>
     <section id="pubSec" class="hidden" style="margin-top:16px">
-      <h2>Review and publish</h2>
-      <p class="note" id="calHelp"></p>
-      <div class="row"><input id="cal" placeholder="Google Calendar ID" autocomplete="off"><button id="pub" class="primary">Publish</button></div>
-      <p id="pubMsg"></p>
-    </section>
-    <section id="doneSec" class="hidden" style="margin-top:16px">
-      <h2>You're live</h2>
-      <div class="kv"><b>Assistant</b><span><a id="aLink" href="#">Try it</a></span><b>MCP endpoint</b><code id="ep"></code></div>
-      <p class="note">Any MCP-capable assistant can use this endpoint. It exposes: get_business_info, get_quote, check_availability, book, cancel.</p>
-      <div class="card"><b>Owner key (shown once, keep it safe)</b><div><code id="key"></code></div><div class="row"><button id="copy">Copy key</button><button id="unpub">Unpublish this business</button></div></div>
+      <h2>Go live</h2>
+      <p>Check the summary. When it looks right, connect your calendar: bookings will land there, and your own events will block those times.</p>
+      <div class="row"><button id="goGoogle" class="primary hidden">Connect Google Calendar and go live</button><button id="goDemo">Use the built-in calendar</button></div>
+      <p class="note" id="pubMsg"></p>
     </section>
   </div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-let draft = { hours: [], services: [], askedVoice: false, askedRules: false, extra: 0 }, messages = [], busy = false, complete = false, cfg = {}, owner = null;
+let draft = { hours: [], services: [], askedVoice: false, askedRules: false, extra: 0 }, messages = [], busy = false, complete = false, cfg = {};
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const NAMES = { name: "business name", timezone: "time zone", currency: "currency", services: "services", hours: "opening hours", voiceRule: "voice-booking rule", bookingRules: "booking rules" };
 
@@ -52,9 +47,10 @@ function render(missing) {
   const el = $("draft"); el.textContent = "";
   const g = document.createElement("div"); g.className = "kv";
   kv(g, "Business", draft.name || "…"); kv(g, "Time zone", draft.timezone || "…"); kv(g, "Currency", draft.currency || "…");
-  kv(g, "Services", draft.services.length ? draft.services.map((s) => `${s.name}: ${s.durationMin} min, ${s.price}${s.bookableByVoice ? "" : " (never by voice)"}`).join("\n") : "…");
+  kv(g, "Services", draft.services.length ? draft.services.map((s) => `${s.name}: ${s.durationMin} min, ${s.price} ${draft.currency || ""}${s.bookableByVoice ? "" : " (never by voice)"}`).join("\n") : "…");
   const byWin = {}; draft.hours.forEach((h) => (byWin[`${h.open}-${h.close}`] = [...(byWin[`${h.open}-${h.close}`] || []), h.day]));
-  kv(g, "Hours", Object.keys(byWin).length ? Object.entries(byWin).map(([w, d]) => `${d.sort().map((x) => DAYS[x]).join(", ")} ${w}`).join("\n") : "…");
+  kv(g, "Hours", Object.keys(byWin).length ? Object.entries(byWin).map(([w, d]) => `${d.sort((a, b) => a - b).map((x) => DAYS[x]).join(", ")} ${w}`).join("\n") : "…");
+  kv(g, "Voice booking", !draft.askedVoice ? "…" : draft.services.some((s) => !s.bookableByVoice) ? "Not by voice: " + draft.services.filter((s) => !s.bookableByVoice).map((s) => s.name).join(", ") : "All services can be booked by voice");
   kv(g, "Notice / gap", `${draft.minNoticeMin ?? 60} min / ${draft.bufferMin ?? 0} min`);
   g.querySelectorAll("span").forEach((s) => (s.style.whiteSpace = "pre-line"));
   el.append(g);
@@ -70,38 +66,45 @@ async function post(path, body) {
 
 async function send() {
   const text = $("text").value.trim(); if (!text || busy) return;
-  busy = true; $("text").value = ""; bubble("me", text); $("status").textContent = "Thinking…";
-  const { ok, j } = await post("/api/interview", { draft, messages, text });
-  $("status").textContent = "";
-  if (!ok) { bubble("sys", j.message || "Something went wrong. Please try again."); busy = false; return; }
-  messages.push({ role: "user", content: text }, { role: "assistant", content: j.reply });
-  messages = messages.slice(-12);
-  draft = j.draft; complete = j.complete; bubble("bot", j.reply); render(j.missing);
-  $("pubSec").classList.toggle("hidden", !complete);
-  busy = false;
+  busy = true; $("send").disabled = true; $("text").value = ""; bubble("me", text); $("status").textContent = "Thinking…";
+  try {
+    const { ok, j } = await post("/api/interview", { draft, messages, text });
+    if (!ok) { bubble("sys", j.message || "Something went wrong. Please try again."); return; }
+    messages.push({ role: "user", content: text }, { role: "assistant", content: j.reply });
+    messages = messages.slice(-12);
+    draft = j.draft; complete = j.complete; bubble("bot", j.reply); render(j.missing);
+    $("pubSec").classList.toggle("hidden", !complete);
+  } catch { bubble("sys", "Could not reach the server. Check your connection and try again."); }
+  finally { busy = false; $("send").disabled = false; $("status").textContent = ""; $("text").focus(); }
 }
 $("send").onclick = send; $("text").addEventListener("keydown", (e) => e.key === "Enter" && send());
 
-$("pub").onclick = async () => {
-  $("pubMsg").textContent = "Publishing…"; $("pubMsg").className = "note";
-  const { ok, j } = await post("/api/publish", { draft, calendarId: $("cal").value.trim() });
-  if (!ok) { $("pubMsg").textContent = j.message || "Could not publish."; $("pubMsg").className = "bad"; return; }
-  owner = j; $("pubMsg").textContent = "";
-  $("aLink").href = j.assistantUrl; $("aLink").textContent = j.assistantUrl; $("ep").textContent = j.endpoint; $("key").textContent = j.ownerKey;
-  $("doneSec").classList.remove("hidden"); $("pubSec").classList.add("hidden");
+async function park() {
+  const r = await post("/api/drafts", { draft });
+  if (!r.ok) { $("pubMsg").textContent = r.j.message || "Could not save your setup."; $("pubMsg").className = "bad"; return null; }
+  return r.j.draftId;
+}
+$("goGoogle").onclick = async () => {
+  $("pubMsg").textContent = "Opening Google…"; $("pubMsg").className = "note";
+  const id = await park(); if (id) location.href = `/auth/google/start?draft=${id}`;
 };
-$("copy").onclick = () => navigator.clipboard && navigator.clipboard.writeText(owner.ownerKey);
-$("unpub").onclick = async () => {
-  const r = await fetch(`/api/business/${owner.slug}`, { method: "DELETE", headers: { "x-owner-key": owner.ownerKey } });
-  $("doneSec").classList.add("hidden"); bubble("sys", r.ok ? "Your business was unpublished." : "Could not unpublish.");
+$("goDemo").onclick = async () => {
+  $("goDemo").disabled = true; $("pubMsg").textContent = "Creating your business…"; $("pubMsg").className = "note";
+  const id = await park();
+  if (!id) { $("goDemo").disabled = false; return; }
+  const r = await post("/api/auth/demo", { draftId: id });
+  if (!r.ok) { $("pubMsg").textContent = r.j.message || "Could not create your business."; $("pubMsg").className = "bad"; $("goDemo").disabled = false; return; }
+  location.href = `/dashboard.html?welcome=${r.j.business.slug}`;
 };
-
+$("reset").onclick = () => {
+  draft = { hours: [], services: [], askedVoice: false, askedRules: false, extra: 0 }; messages = []; complete = false;
+  $("chat").textContent = ""; $("pubSec").classList.add("hidden");
+  bubble("bot", cfg.greeting); render(["name", "timezone", "currency", "services", "hours"]);
+};
 (async () => {
-  cfg = await (await fetch("/api/config")).json();
-  $("calHelp").textContent = cfg.demo
-    ? "Demo mode: bookings are kept in temporary memory, so you can leave the calendar field empty."
-    : `Share your Google Calendar with ${cfg.serviceAccountEmail} (permission: Make changes to events), then paste the calendar's ID (Calendar settings → Integrate calendar).`;
-  if (!cfg.ai) bubble("sys", "The AI interviewer is not enabled on this deployment.");
+  cfg = await (await fetch("/api/config")).json(); $("build").textContent = "build " + (cfg.build || "old");
+  if (cfg.googleSignIn) $("goGoogle").classList.remove("hidden");
+  else $("goDemo").classList.add("primary");
   bubble("bot", cfg.greeting); render(["name", "timezone", "currency", "services", "hours"]);
 })();
 </script>

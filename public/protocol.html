@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Counter MCP protocol demo</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#15181d; --mute:#5b6572; --line:#dde1e7; --accent:#0b6bcb; --ok:#13795b; --bad:#b3261e; --code:#0f1722; --codeink:#cfe3ff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1318; --card:#171c23; --ink:#e8ebf0; --mute:#9aa5b3; --line:#2a313b; --accent:#59a3ff; --ok:#4cc9a0; --bad:#ff8a80; --code:#0a0e13; } }
+  * { box-sizing:border-box }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink) }
+  header { padding:20px 16px 8px; max-width:1100px; margin:0 auto }
+  h1 { margin:0; font-size:22px } .sub { color:var(--mute); margin:4px 0 0 }
+  main { max-width:1100px; margin:0 auto; padding:8px 16px 40px; display:grid; gap:16px; grid-template-columns:minmax(0,1fr) minmax(0,1fr) }
+  @media (max-width:820px) { main { grid-template-columns:1fr } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mute); margin:0 0 10px }
+  .row { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 }
+  button, input { font:inherit; color:inherit }
+  button { border:1px solid var(--line); background:var(--card); padding:8px 12px; border-radius:8px; cursor:pointer }
+  button:hover:not(:disabled) { border-color:var(--accent) } button:disabled { opacity:.5; cursor:not-allowed }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600 }
+  button.sel { border-color:var(--accent); outline:2px solid var(--accent) }
+  button.warn { border-style:dashed }
+  input { border:1px solid var(--line); background:var(--card); padding:8px 10px; border-radius:8px }
+  .note { color:var(--mute); font-size:13px } .ok { color:var(--ok) } .bad { color:var(--bad) }
+  .card { border:1px solid var(--line); border-radius:10px; padding:12px; margin:8px 0 }
+  #log { background:var(--code); color:var(--codeink); border-radius:10px; padding:10px; height:560px; overflow:auto; font:12px/1.45 ui-monospace,Consolas,monospace; white-space:pre-wrap; word-break:break-word }
+  #log .req { color:#ffd479 } #log .res { color:#9be9c0 } #log .lbl { color:#8aa0b8 }
+  .hidden { display:none }
+  nav { max-width:1100px; margin:0 auto; padding:12px 16px 0; display:flex; gap:14px; flex-wrap:wrap; font-size:14px } nav a { color:var(--accent); text-decoration:none } nav a.cur { font-weight:700; text-decoration:underline }
+</style>
+</head>
+<body>
+<nav><a href="/">Home</a><a href="/interview.html">Set up a business</a><a href="/dashboard.html">Owner dashboard</a><a href="/assistant.html">Voice assistant</a><a href="/book.html">Book online</a><a class="cur" href="/protocol.html">MCP protocol</a></nav>
+<header>
+  <h1 id="title">Open Counter</h1>
+  <p class="sub">A web page acting as a real MCP client: it sends <code>initialize</code>, <code>tools/list</code> and <code>tools/call</code> over Streamable HTTP. The raw protocol is on the right.</p>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>1. Pick a service</h2>
+      <div id="services" class="row"></div>
+      <p id="biz" class="note"></p>
+    </section>
+    <section style="margin-top:16px">
+      <h2>2. Pick a day and time</h2>
+      <div class="row"><input id="date" type="date"><button id="find" disabled>Check availability</button></div>
+      <div id="slots" class="row"></div>
+      <p id="slotnote" class="note"></p>
+    </section>
+    <section id="confirmSec" class="hidden" style="margin-top:16px">
+      <h2>3. Read back and confirm</h2>
+      <div class="card" id="readback"></div>
+      <div class="row"><input id="name" placeholder="Your name" maxlength="80"><button id="yes" class="primary">Yes, book it</button></div>
+      <p id="result"></p>
+      <div class="row"><button id="cancel" class="hidden">Cancel this booking</button></div>
+    </section>
+    <section style="margin-top:16px">
+      <h2>Guardrails: these should all be refused</h2>
+      <div class="row">
+        <button class="warn" id="g-dup" disabled>Book the same slot again</button>
+        <button class="warn" id="g-hours" disabled>Book at 03:00</button>
+        <button class="warn" id="g-voice" disabled>Book a voice-blocked service</button>
+        <button class="warn" id="g-noconf" disabled>Book without confirmation</button>
+      </div>
+      <p id="gres" class="note"></p>
+    </section>
+  </div>
+  <section>
+    <h2>MCP protocol log</h2>
+    <div id="log"></div>
+  </section>
+</main>
+<script>
+const slug = new URLSearchParams(location.search).get("business") || "demo-barber";
+const ENDPOINT = `/mcp/${slug}`;
+const $ = (id) => document.getElementById(id);
+let rpcId = 0, info = null, service = null, slot = null, booking = null, lastBooked = null, offset = "+02:00";
+
+function log(kind, label, obj) {
+  const d = document.createElement("div");
+  const l = document.createElement("span"); l.className = "lbl"; l.textContent = label + "\n";
+  const b = document.createElement("span"); b.className = kind; b.textContent = JSON.stringify(obj, null, 1) + "\n\n";
+  d.append(l, b); $("log").append(d); $("log").scrollTop = $("log").scrollHeight;
+}
+async function rpc(method, params) {
+  const body = { jsonrpc: "2.0", id: ++rpcId, method, params };
+  log("req", `-> ${method}`, body);
+  const r = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "x-oc-channel": "web" }, body: JSON.stringify(body) });
+  const j = await r.json();
+  log("res", `<- ${r.status}`, j);
+  if (j.error) throw new Error(j.error.message);
+  return j.result;
+}
+const tool = async (name, args) => (await rpc("tools/call", { name, arguments: args })).structuredContent;
+
+const nextWeekday = () => { const d = new Date(Date.now() + 2 * 864e5); while ([0, 6].includes(d.getDay())) d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); };
+
+async function init() {
+  try {
+    await rpc("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "open-counter-demo-page", version: "0.1.0" } });
+    const t = await rpc("tools/list", {});
+    $("biz").textContent = "Server tools: " + t.tools.map((x) => x.name).join(", ");
+    info = await tool("get_business_info", {});
+    $("title").textContent = info.name;
+    for (const s of info.services) {
+      const b = document.createElement("button");
+      b.textContent = `${s.name} · ${s.durationMin} min · ${s.price} ${info.currency}` + (s.bookableByVoice ? "" : " (not bookable by voice)");
+      b.onclick = () => { service = s; [...$("services").children].forEach((c) => c.classList.remove("sel")); b.classList.add("sel"); $("find").disabled = false; $("slots").textContent = ""; $("confirmSec").classList.add("hidden"); };
+      $("services").append(b);
+    }
+    $("date").value = nextWeekday();
+  } catch (e) { $("biz").textContent = "Could not reach the server: " + e.message; $("biz").className = "note bad"; }
+}
+
+$("find").onclick = async () => {
+  $("slots").textContent = ""; $("slotnote").textContent = "";
+  const r = await tool("check_availability", { serviceId: service.id, date: $("date").value });
+  if (!r.ok) { $("slotnote").textContent = r.message; $("slotnote").className = "note bad"; return; }
+  $("slotnote").className = "note";
+  if (r.slots[0]) offset = r.slots[0].start.slice(19); // the business's UTC offset on that day
+  $("slotnote").textContent = r.count ? `${r.count} free slots (${r.timezone}). Showing the first 24.` : "No slots that day (closed, or fully booked).";
+  for (const s of r.slots.slice(0, 24)) {
+    const b = document.createElement("button");
+    b.textContent = s.start.slice(11, 16);
+    b.onclick = () => {
+      slot = s; [...$("slots").children].forEach((c) => c.classList.remove("sel")); b.classList.add("sel");
+      $("readback").textContent = `${service.name} on ${s.startLocal} (${r.timezone}) for ${service.price} ${info.currency}. Shall I book it?`;
+      $("confirmSec").classList.remove("hidden"); $("result").textContent = ""; $("cancel").classList.add("hidden");
+    };
+    $("slots").append(b);
+  }
+};
+
+$("yes").onclick = async () => {
+  const name = $("name").value.trim();
+  if (!name) { $("result").textContent = "Please enter your name."; $("result").className = "bad"; return; }
+  const r = await tool("book", { serviceId: service.id, start: slot.start, customerName: name, customerConfirmed: true, idempotencyKey: crypto.randomUUID() });
+  if (r.ok) {
+    booking = r; lastBooked = { serviceId: service.id, start: slot.start };
+    $("result").className = "ok"; $("result").textContent = `Booked: ${r.service}, ${r.startLocal}. Booking ID ${r.bookingId.slice(0, 8)}…`;
+    $("cancel").classList.remove("hidden"); ["g-dup"].forEach((i) => ($(i).disabled = false));
+  } else { $("result").className = "bad"; $("result").textContent = `Refused (${r.code}): ${r.message}`; }
+};
+$("cancel").onclick = async () => {
+  const r = await tool("cancel", { bookingId: booking.bookingId });
+  $("result").className = r.ok ? "ok" : "bad"; $("result").textContent = r.ok ? "Cancelled. The slot is free again." : `Refused (${r.code}): ${r.message}`;
+  if (r.ok) $("cancel").classList.add("hidden");
+};
+
+async function guard(args, ok, bad) {
+  const r = await tool("book", args);
+  $("gres").className = r.ok ? "note bad" : "note ok";
+  $("gres").textContent = r.ok ? ok : `${bad} Refused: ${r.code}. ${r.message}`;
+}
+const base = () => ({ customerName: "Guardrail test", customerConfirmed: true });
+$("g-dup").onclick = () => guard({ ...base(), ...lastBooked }, "Unexpected: a double booking went through!", "Same slot, second customer.");
+$("g-hours").onclick = () => guard({ ...base(), serviceId: info.services.find((s) => s.bookableByVoice).id, start: $("date").value + "T03:00:00" + offset }, "Unexpected: 3am was accepted!", "3am request.");
+$("g-voice").onclick = () => { const s = info.services.find((x) => !x.bookableByVoice); if (!s) { $("gres").textContent = "This business has no voice-blocked service."; return; } guard({ ...base(), serviceId: s.id, start: $("date").value + "T10:00:00" + offset }, "Unexpected: voice-blocked service was booked!", "Owner said this is never bookable by voice."); };
+$("g-noconf").onclick = () => !slot ? ($("gres").textContent = "Pick a time slot first.") : guard({ serviceId: service.id, start: slot.start, customerName: "x", customerConfirmed: false }, "Unexpected: booked without confirmation!", "No explicit yes from the customer.");
+const enableG = () => { ["g-hours", "g-voice"].forEach((i) => ($(i).disabled = false)); };
+const origFind = $("find").onclick; $("find").onclick = async () => { await origFind(); enableG(); $("g-noconf").disabled = false; };
+init();
+</script>
+</body>
+</html>

@@ -103,3 +103,12 @@ export class GoogleCalendar implements CalendarPort {
     if (!r.ok && r.status !== 404 && r.status !== 410) throw new Error(`events.delete ${r.status}`);
   }
 }
+
+/** The service account's email (public info): the owner needs it to share their calendar. */
+export function serviceAccountEmail(credentials?: string): string | undefined {
+  try {
+    if (!credentials) return undefined;
+    const c = JSON.parse(credentials.trim().startsWith("{") ? credentials : atob(credentials.trim()));
+    return typeof c.client_email === "string" ? c.client_email : undefined;
+  } catch { return undefined; }
+}

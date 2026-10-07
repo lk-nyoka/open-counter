@@ -3,32 +3,32 @@ import type { BusyInterval, CalendarEvent, CalendarPort, Deps, LockPort, NewEven
 
 /** In-memory fakes: used by tests and by `OPEN_COUNTER_FAKE=1` local demos. */
 export class MemoryCalendar implements CalendarPort {
-  events = new Map<string, NewEvent & { cancelled?: boolean }>();
+  events = new Map<string, NewEvent & { cancelled?: boolean; calendarId: string }>();
   /** Events the owner added by hand (not via Open Counter). Titles are attacker-controllable text. */
   ownerEvents: { title: string; start: string; end: string }[] = [];
 
-  async listBusy(_c: string, from: string, to: string): Promise<BusyInterval[]> {
+  async listBusy(c: string, from: string, to: string): Promise<BusyInterval[]> {
     const f = Date.parse(from), t = Date.parse(to);
     const all = [
-      ...[...this.events.values()].filter((e) => !e.cancelled),
+      ...[...this.events.values()].filter((e) => !e.cancelled && e.calendarId === c),
       ...this.ownerEvents,
     ];
     // Only times leave this function. Titles are dropped, like Google's freeBusy API.
     return all.filter((e) => Date.parse(e.start) < t && Date.parse(e.end) > f).map((e) => ({ start: e.start, end: e.end }));
   }
-  async getEvent(_c: string, id: string): Promise<CalendarEvent | null> {
+  async getEvent(c: string, id: string): Promise<CalendarEvent | null> {
     const e = this.events.get(id);
-    return e && !e.cancelled ? { id, start: e.start, end: e.end } : null;
+    return e && !e.cancelled && e.calendarId === c ? { id, start: e.start, end: e.end } : null;
   }
-  async createEvent(_c: string, ev: NewEvent): Promise<void> {
+  async createEvent(c: string, ev: NewEvent): Promise<void> {
     const ex = this.events.get(ev.id);
     if (ex && !ex.cancelled) return; // idempotent
     if (ex?.cancelled) throw new Error("idempotency key already used by a cancelled booking");
-    this.events.set(ev.id, ev);
+    this.events.set(ev.id, { ...ev, calendarId: c });
   }
-  async deleteEvent(_c: string, id: string): Promise<void> {
+  async deleteEvent(c: string, id: string): Promise<void> {
     const e = this.events.get(id);
-    if (e) e.cancelled = true;
+    if (e && e.calendarId === c) e.cancelled = true;
   }
 }
 

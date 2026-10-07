@@ -1,24 +1,13 @@
 // Runs the real D1 lock SQL on a real SQLite engine (node:sqlite) via a tiny D1-shaped shim.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { d1Shim } from "../dev/d1-shim.js";
 import { D1Locks, type D1Like } from "./d1.js";
 import { BusinessSpecSchema } from "../spec.js";
 import { memoryDeps } from "./memory.js";
 import { book, cancel } from "../tools.js";
 
-function shim(): { d1: D1Like; raw: DatabaseSync } {
-  const raw = new DatabaseSync(":memory:");
-  raw.exec(readFileSync("schema.sql", "utf8"));
-  type Stmt = { sql: string; params: unknown[] };
-  const run = (s: Stmt) => ({ meta: { changes: Number(raw.prepare(s.sql).run(...(s.params as never[])).changes) } });
-  const d1 = {
-    prepare: (sql: string) => ({ bind: (...params: unknown[]) => { const s = { sql, params, run: async () => run({ sql, params }) }; return s; } }),
-    batch: async (stmts: Stmt[]) => { raw.exec("BEGIN"); try { const r = stmts.map(run); raw.exec("COMMIT"); return r; } catch (e) { raw.exec("ROLLBACK"); throw e; } },
-  } as unknown as D1Like;
-  return { d1, raw };
-}
+const shim = d1Shim;
 const FAR = Math.floor(Date.now() / 1000) + 86_400;
 
 test("D1 locks: all-or-nothing, same-owner resume, expiry, release only own", async () => {

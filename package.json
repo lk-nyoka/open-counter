@@ -12,7 +12,8 @@
     "gen:specs": "tsx scripts/gen-specs.ts",
     "build:sam": "npm run gen:specs && sam build",
     "deploy:cf": "node scripts/deploy-cloudflare.mjs",
-    "dev:cf": "wrangler dev --local --var DEMO_MODE:1"
+    "dev:cf": "wrangler dev --local --var DEMO_MODE:1",
+    "dev:local": "tsx src/dev/local-worker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1147.0",

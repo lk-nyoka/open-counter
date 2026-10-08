@@ -8,13 +8,13 @@
   --color-surface: #FFFFFF;
   --color-ink: #1B1A17;
   --color-ink-2: #5E5A53;
-  --color-ink-3: #8F897F;
+  --color-ink-3: #6E685F;
   --color-line: rgba(27, 26, 23, 0.09);
   --color-line-2: rgba(27, 26, 23, 0.16);
   --color-amber: #E08A2E;
-  --color-amber-deep: #A9601A;
+  --color-amber-deep: #9A5514;
   --color-amber-soft: #FBEBD6;
-  --color-ok: #1E7F55;
+  --color-ok: #186D47;
   --color-ok-soft: #E3F3EA;
   --color-warn: #B4441B;
   --color-warn-soft: #FBE7DE;
@@ -22,6 +22,8 @@
 }
 
 html { -webkit-text-size-adjust: 100%; }
+/* Ozza's glow and bloom may reach past a narrow screen edge; never let decoration cause sideways scrolling. */
+main { overflow-x: clip; }
 body { margin: 0; background: var(--color-canvas); color: var(--color-ink); font-family: var(--font-sans); font-feature-settings: "ss01", "cv11"; -webkit-font-smoothing: antialiased; }
 ::selection { background: var(--color-amber-soft); }
 :focus-visible { outline: 2px solid #2F6BFF; outline-offset: 2px; border-radius: 6px; }
@@ -38,8 +40,8 @@ body { margin: 0; background: var(--color-canvas); color: var(--color-ink); font
 .btn:disabled { opacity: .45; pointer-events: none; }
 .btn-primary { background: var(--color-ink); color: #fff; }
 .btn-primary:hover { background: #000; box-shadow: 0 8px 24px -10px rgba(0,0,0,.45); }
-.btn-amber { background: var(--color-amber); color: #fff; }
-.btn-amber:hover { background: var(--color-amber-deep); }
+.btn-amber { background: var(--color-amber-deep); color: #fff; }
+.btn-amber:hover { background: #7F4510; }
 .btn-ghost { background: var(--color-surface); border: 1px solid var(--color-line-2); color: var(--color-ink); }
 .btn-ghost:hover { border-color: var(--color-ink-3); }
 .chip { display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--color-line-2); background: var(--color-surface); font-size: 14px; transition: all .15s; }

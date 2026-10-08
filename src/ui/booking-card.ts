@@ -11,7 +11,7 @@ export const BOOKING_CARD_HTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Open Counter booking</title>
 <style>
-:root{--bg:#FBF8F3;--card:#fff;--ink:#1B1A17;--ink2:#5E5A53;--ink3:#8F897F;--line:rgba(27,26,23,.1);--amber:#E08A2E;--amberdeep:#A9601A;--ok:#1E7F55;--oksoft:#E3F3EA;--warn:#B4441B}
+:root{--bg:#FBF8F3;--card:#fff;--ink:#1B1A17;--ink2:#5E5A53;--ink3:#6E685F;--line:rgba(27,26,23,.1);--amber:#E08A2E;--amberdeep:#9A5514;--ok:#186D47;--oksoft:#E3F3EA;--warn:#B4441B}
 :root[data-theme=dark]{--bg:#17150F;--card:#211E18;--ink:#F4EFE6;--ink2:#C9C1B3;--ink3:#948B7D;--line:rgba(255,255,255,.12);--oksoft:#163527}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#17150F;--card:#211E18;--ink:#F4EFE6;--ink2:#C9C1B3;--ink3:#948B7D;--line:rgba(255,255,255,.12);--oksoft:#163527}}
 *{box-sizing:border-box}html,body{margin:0;background:transparent;color:var(--ink);font:16px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -25,7 +25,7 @@ ul{list-style:none;padding:0;margin:16px 0 0}li{display:flex;gap:10px;align-item
 @keyframes in{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
 .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
 button{font:inherit;min-height:48px;min-width:48px;padding:0 18px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
-button.primary{background:var(--amber);border-color:var(--amber);color:#fff;font-weight:600}
+button.primary{background:var(--amberdeep);border-color:var(--amberdeep);color:#fff;font-weight:600}
 button:focus-visible{outline:3px solid #2F6BFF;outline-offset:2px}
 .row{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
 .code{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);color:var(--ink3);font-size:13px;word-break:break-all}
@@ -52,7 +52,7 @@ button:focus-visible{outline:3px solid #2F6BFF;outline-offset:2px}
         '<p class="sub">'+esc(d.price)+' '+esc(d.currency)+' · for '+esc(d.customerName)+'</p>'+
         '<p class="msg">Your assistant understood the request. Then the counter checked every rule before booking:</p><ul>'+
         (d.checks||[]).map(function(c,i){return '<li style="animation-delay:'+(i*90)+'ms"><span class="tick" aria-hidden="true">✓</span><span>'+esc(c.label)+'</span></li>';}).join('')+
-        '</ul><p class="code">Booking code: '+esc(d.bookingId)+'</p>';
+        '</ul><p class="code">Booking code <strong style="font:600 20px ui-monospace,monospace;letter-spacing:.12em;color:var(--ink)">'+esc(d.code||d.bookingId)+'</strong> · with your name, it cancels the booking</p>';
     } else if(d.code==='confirmation_required' && d.readBack){
       var b=d.readBack;
       h='<p class="eyebrow">Please confirm · '+esc(b.business)+'</p><h1>'+esc(b.service)+', '+esc(b.when)+'</h1><p class="sub">'+esc(b.price)+' '+esc(b.currency)+(b.customerName?' · for '+esc(b.customerName):'')+'</p>'+

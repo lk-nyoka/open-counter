@@ -131,7 +131,34 @@ export function Book({ business, customerLink }: { business: Business; customerL
         </section>
       )}
       {msg && <p className="mt-4 text-warn" role="alert">{msg}</p>}
+      <CancelByCode slug={business.slug} />
       {customerLink && <p className="mt-16 text-center text-xs text-ink-3">Powered by Open Counter</p>}
     </Page>
+  );
+}
+
+/** Cancel later with the code from the receipt and the name on the booking. */
+function CancelByCode({ slug }: { slug: string }) {
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  async function go() {
+    setBusy(true); setMsg(null);
+    try { const r: any = await api.cancelPublicByCode(slug, code, name); setMsg({ ok: true, text: r.summary ?? 'Your booking is cancelled.' }); setCode(''); }
+    catch (e: any) { setMsg({ ok: false, text: e.message || 'Could not cancel.' }); }
+    finally { setBusy(false); }
+  }
+  return (
+    <details className="mt-12 card p-5">
+      <summary className="cursor-pointer font-medium">Need to cancel a booking?</summary>
+      <p className="text-sm text-ink-2 mt-2">Enter the six-character code from your receipt and the name the booking is under.</p>
+      <div className="mt-3 grid sm:grid-cols-[160px_1fr_auto] gap-3 items-end">
+        <label className="text-sm text-ink-2">Code<input className="field mt-1 font-mono uppercase tracking-widest" value={code} onChange={(e) => setCode(e.target.value)} placeholder="K7P-Q2M" maxLength={9} autoComplete="off" /></label>
+        <label className="text-sm text-ink-2">Name<input className="field mt-1" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={80} /></label>
+        <button className="btn btn-ghost text-warn" onClick={go} disabled={busy || code.replace(/[^0-9a-z]/gi, '').length !== 6 || !name.trim()}>{busy ? 'Cancelling…' : 'Cancel booking'}</button>
+      </div>
+      {msg && <p className={`mt-3 ${msg.ok ? 'text-ok' : 'text-warn'}`} role="status">{msg.text}</p>}
+    </details>
   );
 }

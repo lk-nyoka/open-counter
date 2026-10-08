@@ -40,7 +40,7 @@ const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").repla
 const ASSISTANT_MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"];
 const INTERVIEW_MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"];
 /** Shown on the pages, so you can see at a glance which version is live. Bump on every release. */
-export const BUILD = "2026-10-08-v5";
+export const BUILD = "2026-10-08-v6";
 const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
 const models = (env: string | undefined, dflt: string[]) => { const l = (env ?? "").split(",").map((x) => x.trim()).filter(Boolean); return l.length ? l : dflt; };
 const UNITS = { llm: 3, stt: 1 }; // the daily cap is counted in units: one language-model call = 3, one transcription = 1
@@ -104,7 +104,7 @@ async function route(req: Request, env: ApiEnv, ctx: ApiCtx): Promise<Response> 
     if (acc) return acc;
 
     if (path === "/api/config" && req.method === "GET") {
-      return json({ demo: env.DEMO_MODE === "1" || !env.GOOGLE_SERVICE_ACCOUNT_JSON, serviceAccountEmail: serviceAccountEmail(env.GOOGLE_SERVICE_ACCOUNT_JSON) ?? null, ai: !!env.AI, googleSignIn: oauthConfigured(env), greeting: GREETING, build: BUILD });
+      return json({ demo: env.DEMO_MODE === "1" || !env.GOOGLE_SERVICE_ACCOUNT_JSON, serviceAccountEmail: serviceAccountEmail(env.GOOGLE_SERVICE_ACCOUNT_JSON) ?? null, ai: !!env.AI, googleSignIn: oauthConfigured(env), greeting: GREETING, build: BUILD, pushKey: (env as { VAPID_PUBLIC_KEY?: string }).VAPID_PUBLIC_KEY ?? null });
     }
 
     if (path === "/api/interview" && req.method === "POST") {
@@ -125,7 +125,7 @@ async function route(req: Request, env: ApiEnv, ctx: ApiCtx): Promise<Response> 
       if (!spec) return json({ error: "unknown_business" }, 404);
       const text = typeof body.text === "string" ? body.text.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 500) : "";
       if (!text) return json({ error: "bad_request" }, 400);
-      const AW = ["service", "date", "time", "name", "confirm", "code", "cancelConfirm", "offerBook"];
+      const AW = ["service", "date", "time", "name", "confirm", "code", "codeName", "cancelConfirm", "offerBook"];
       const awaiting = (AW.includes(body.awaiting) ? body.awaiting : null) as Awaiting;
       const now = ctx.now();
       const r = await understand(env.AI, models(env.ASSISTANT_MODEL, ASSISTANT_MODELS), spec, text, now, awaiting, async () => !(await aiAllowed(env, req)));

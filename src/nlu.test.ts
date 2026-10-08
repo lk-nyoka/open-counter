@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BusinessSpecSchema } from "./spec.js";
-import { parseUtterance, matchService, understand } from "./nlu.js";
+import { parseUtterance, matchService, understand, parseTime } from "./nlu.js";
+import { DateTime } from "luxon";
 
 const spec = BusinessSpecSchema.parse({
   slug: "test-salon", name: "Test Salon", timezone: "Africa/Johannesburg", currency: "ZAR", calendarId: "c",
@@ -102,4 +103,20 @@ test("the model only fills gaps, and invalid model output is ignored", async () 
   const broken: any = { run: async () => { throw new Error("model down"); } };
   const r2 = await understand(broken, ["m"], spec, "book a haircut tomorrow at 10am", now, null);
   assert.equal(r2.serviceId, "haircut"); assert.equal(r2.time, "10:00"); assert.equal(r2.usedModel, false);
+});
+
+test("the model can never invent a day or time the caller did not say (isiZulu request)", async () => {
+  // A model that answers with a time nobody said, and the wrong day.
+  const ai: any = { run: async () => ({ response: { intent: "book", service: "haircut", date: "2026-10-20", time: "09:00" } }) };
+  const r = await understand(ai, ["m"], spec, "ngifuna ukugunda izinwele kusasa", now, null);
+  assert.equal(r.time, undefined, "no time was said, so none is kept");
+  assert.equal(r.date, DateTime.fromJSDate(now, { zone: spec.timezone }).plus({ days: 1 }).toISODate(), "kusasa = tomorrow, from the parser, not the model");
+  const r2 = await understand(ai, ["m"], spec, "uhm the thing I had last time", now, null);
+  assert.equal(r2.date, undefined); assert.equal(r2.time, undefined);
+});
+
+test("approximate times: 3ish, three-ish", () => {
+  assert.equal(parseTime("can I get a haircut friday around 3ish").time, "15:00");
+  assert.equal(parseTime("three-ish tomorrow").time, "15:00");
+  assert.equal(parseTime("10ish in the morning").time, "10:00");
 });

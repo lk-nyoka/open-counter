@@ -29,7 +29,7 @@ export function Home({ signedIn, onDemo, demoBusy }: { signedIn: boolean; onDemo
           )}
         </div>
         <div className="grid place-items-center rise-2">
-          <Ozza state="idle" size={300} />
+          <Ozza state="idle" size={typeof window !== 'undefined' && window.innerWidth < 640 ? 210 : 300} />
           <p className="mt-8 text-ink-2 text-center">Hi, I'm <span className="serif text-ink text-lg">Ozza</span>. I take bookings so you can keep working.</p>
         </div>
       </section>

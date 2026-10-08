@@ -5,7 +5,7 @@
 //   add --frontend https://my-frontend.app -> allow a frontend on another domain to call the API
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { randomBytes, generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,6 +20,15 @@ if (oauthPath) {
 const SECRETS_FILE = ".oc-secrets.json";
 const local = existsSync(SECRETS_FILE) ? JSON.parse(readFileSync(SECRETS_FILE, "utf8")) : {};
 if (!local.SESSION_SECRET) { local.SESSION_SECRET = randomBytes(32).toString("hex"); writeFileSync(SECRETS_FILE, JSON.stringify(local, null, 2)); }
+// VAPID keys for owners' booking notifications (Web Push). Made once and kept: changing them silences every subscribed phone.
+if (!local.VAPID_PRIVATE_JWK) {
+  const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const pub = publicKey.export({ format: "jwk" });
+  const raw = Buffer.concat([Buffer.from([4]), Buffer.from(pub.x, "base64url"), Buffer.from(pub.y, "base64url")]);
+  local.VAPID_PUBLIC_KEY = raw.toString("base64url");
+  local.VAPID_PRIVATE_JWK = JSON.stringify(privateKey.export({ format: "jwk" }));
+  writeFileSync(SECRETS_FILE, JSON.stringify(local, null, 2));
+}
 if (!!keyPath !== !!calendar) { console.error("Pass both --key and --calendar, or neither (demo mode)."); process.exit(2); }
 const demo = !keyPath;
 
@@ -72,7 +81,7 @@ const liveUrl = (/https:\/\/[a-z0-9.-]+\.workers\.dev/i.exec(deployOut) || [])[0
 
 step("Storing secrets (encrypted by Cloudflare)");
 {
-  const secrets = { SESSION_SECRET: local.SESSION_SECRET };
+  const secrets = { SESSION_SECRET: local.SESSION_SECRET, VAPID_PUBLIC_KEY: local.VAPID_PUBLIC_KEY, VAPID_PRIVATE_JWK: local.VAPID_PRIVATE_JWK };
   if (!demo) Object.assign(secrets, { GOOGLE_SERVICE_ACCOUNT_JSON: readFileSync(keyPath, "utf8"), CALENDAR_ID_DEMO_BARBER: calendar });
   if (oauth) Object.assign(secrets, { GOOGLE_OAUTH_CLIENT_ID: oauth.client_id, GOOGLE_OAUTH_CLIENT_SECRET: oauth.client_secret });
   if (frontend) secrets.FRONTEND_ORIGINS = frontend;

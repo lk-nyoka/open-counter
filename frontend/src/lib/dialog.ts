@@ -3,7 +3,7 @@ import { AssistantUnderstanding, Business, Slot } from '../types';
 // The booking dialog is shared with the backend's own pages and covered by its tests (src/dialog.test.ts).
 // Keep this file a thin typed wrapper: never fork the logic.
 // @ts-ignore: plain ES module
-export { createDialog, sayTime, sayList, toMin } from './dialog-core.js';
+export { createDialog, sayTime, sayList, toMin, sayCode } from './dialog-core.js';
 
 export interface DialogOptions {
   info: Business;

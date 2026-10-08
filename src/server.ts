@@ -33,13 +33,14 @@ const AVAIL_OUT = {
   nextAvailable: z.object({ date: z.string(), start: z.string(), startLocal: z.string(), spoken: z.string() }).nullable().optional(),
 };
 const BOOK_OUT = {
-  ok: z.boolean(), confirmed: z.boolean(), replay: z.boolean(), bookingId: z.string().describe("Secret code the customer needs to cancel"),
+  ok: z.boolean(), confirmed: z.boolean(), replay: z.boolean(), bookingId: z.string().describe("Secret id; cancels the booking on its own"),
+  code: z.string().describe("Six-character booking code to give the customer, e.g. K7P-Q2M. With their name it cancels the booking"),
   business: z.string(), service: z.string(), customerName: z.string(), price: z.number(), currency: z.string(),
   start: z.string(), end: z.string(), startLocal: z.string(), when: z.string(), summary: z.string(),
   checks: z.array(Check).describe("Every rule the server checked before writing the booking"),
   businessId: z.string().optional(),
 };
-const CANCEL_OUT = { ok: z.boolean(), cancelled: z.boolean(), bookingId: z.string(), business: z.string(), summary: z.string() };
+const CANCEL_OUT = { ok: z.boolean(), cancelled: z.boolean(), bookingId: z.string(), code: z.string(), business: z.string(), summary: z.string() };
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const UI_META = { ui: { resourceUri: BOOKING_CARD_URI }, "ui/resourceUri": BOOKING_CARD_URI };
@@ -102,8 +103,13 @@ function registerBookingTools(server: McpServer, resolve: Resolve, directory: bo
 
   server.registerTool("cancel", {
     title: "Cancel a booking",
-    description: `Cancel a booking at ${nameForText} using the bookingId that book returned. Confirm with the customer first.`,
-    inputSchema: { ...B, bookingId: z.string().describe("The bookingId returned by book") },
+    description: `Cancel a booking at ${nameForText}. Pass the bookingId that book returned or, when the customer reads out their six-character booking code (like "K7P-Q2M"), pass code and the customerName the booking was made under. Confirm with the customer first.`,
+    inputSchema: {
+      ...B,
+      bookingId: z.string().optional().describe("The bookingId returned by book"),
+      code: z.string().optional().describe("The short booking code the customer was given, e.g. K7P-Q2M"),
+      customerName: z.string().optional().describe("Required with code: the name on the booking"),
+    },
     outputSchema: CANCEL_OUT,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     _meta: UI_META,

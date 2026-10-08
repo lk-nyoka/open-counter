@@ -183,6 +183,19 @@ export const api = {
     });
   },
 
+  /** This device gets a notification for every new booking. */
+  async savePush(sub: PushSubscriptionJSON) {
+    return request('/api/merchant/push', { method: 'POST', body: JSON.stringify(sub) });
+  },
+  async deletePush(endpoint: string) {
+    return request('/api/merchant/push', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
+  },
+
+  /** Cancel with the six-character booking code and the name on the booking. */
+  async cancelPublicByCode(slug: string, code: string, customerName: string) {
+    return request(`/api/public/businesses/${slug}/cancel`, { method: 'POST', body: JSON.stringify({ code, customerName }) });
+  },
+
   /** A signed-in owner adds a business from a finished interview draft. */
   async createBusiness(draft: BusinessDraft): Promise<Business> {
     const r = await request('/api/merchant/businesses', { method: 'POST', body: JSON.stringify({ draft }) });
@@ -227,8 +240,13 @@ export const api = {
     return j;
   },
 
-  async getConfig(): Promise<{ googleSignIn: boolean; build: string; greeting: string }> {
+  async getConfig(): Promise<{ googleSignIn: boolean; build: string; greeting: string; pushKey?: string | null }> {
     return request('/api/config');
+  },
+
+  /** Deletes the business and every booking record it holds. Events already in a Google Calendar stay there. */
+  async deleteBusiness(slug: string) {
+    return request(`/api/merchant/businesses/${slug}`, { method: 'DELETE' });
   },
 
   async logout() {

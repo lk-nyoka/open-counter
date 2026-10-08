@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { normalizeCode } from "./tools.js";
 import type { BusinessSpec, Service } from "./spec.js";
 import { aiJson, type AiBinding } from "./ai.js";
 
@@ -9,7 +10,7 @@ import { aiJson, type AiBinding } from "./ai.js";
  */
 
 export type Intent = "book" | "services" | "price" | "hours" | "cancel" | "greeting" | "thanks" | "none";
-export type Awaiting = "service" | "date" | "time" | "name" | "confirm" | "code" | "cancelConfirm" | "offerBook" | null;
+export type Awaiting = "service" | "date" | "time" | "name" | "confirm" | "code" | "codeName" | "cancelConfirm" | "offerBook" | null;
 export type PartOfDay = "morning" | "afternoon" | "evening";
 
 export interface Nlu {
@@ -22,6 +23,8 @@ export interface Nlu {
   partOfDay?: PartOfDay;
   name?: string;
   bookingId?: string;
+  /** A short booking code like "K7P-Q2M", as typed or heard. */
+  bookingCode?: string;
   yes?: boolean;
   no?: boolean;
   /** "the first one" = 1, "the last one" = -1 */
@@ -91,9 +94,9 @@ export function matchService(text: string, services: Service[]): { id?: string; 
 /** Resolve a spoken date to YYYY-MM-DD in the business time zone. */
 export function parseDate(text: string, today: DateTime): string | undefined {
   const t = normalize(text);
-  if (/\b(today|tonight|this (afternoon|evening|morning))\b/.test(t)) return today.toISODate()!;
+  if (/\b(today|tonight|this (afternoon|evening|morning)|namhlanje|vandag)\b/.test(t)) return today.toISODate()!;
   if (/\bday after (tomorrow|tmrw)\b/.test(t)) return today.plus({ days: 2 }).toISODate()!;
-  if (/\b(tomorrow|tmrw|tomorow|tommorow|tomorrows)\b/.test(t)) return today.plus({ days: 1 }).toISODate()!;
+  if (/\b(tomorrow|tmrw|tomorow|tommorow|tomorrows|kusasa|ngomso)\b/.test(t)) return today.plus({ days: 1 }).toISODate()!;
   let m = /\b(\d{4})-(\d{2})-(\d{2})\b/.exec(t);
   if (m) return fix(Number(m[1]), Number(m[2]), Number(m[3]));
   const mon = `(${MONTHS.map((x) => x.slice(0, 3) + "[a-z]*").join("|")})`;
@@ -127,7 +130,7 @@ const numOf = (s: string) => (/^\d+$/.test(s) ? Number(s) : NUM[s]);
 
 /** Resolve a spoken time to HH:MM. Without am/pm, 1 to 7 means afternoon (nobody books 3am). */
 export function parseTime(text: string, opts: { bare?: boolean } = {}): { time?: string; partOfDay?: PartOfDay } {
-  const t = normalize(text).replace(/\bo ?clock\b/g, "oclock");
+  const t = normalize(text).replace(/\bo ?clock\b/g, "oclock").replace(new RegExp(`\\b(\\d{1,2}|${NUM_WORD})\\s?-?\\s?ish\\b`, "g"), "around $1");
   const partOfDay: PartOfDay | undefined = /\b(morning|am\b)/.test(t) && !/\bpm\b/.test(t) ? "morning" : /\b(afternoon|lunch ?time|after lunch)\b/.test(t) ? "afternoon" : /\b(evening|tonight|after work)\b/.test(t) ? "evening" : undefined;
   const out = (h: number, m: number, ap?: string) => {
     if (!(h >= 0 && h <= 23 && m >= 0 && m < 60)) return { partOfDay };
@@ -198,8 +201,9 @@ export function parseUtterance(text: string, spec: BusinessSpec, now: Date, awai
   const tm = parseTime(text, { bare: awaiting === "time" });
   if (tm.time) r.time = tm.time;
   if (tm.partOfDay) r.partOfDay = tm.partOfDay;
-  const name = parseName(text, spec.services, awaiting === "name"); if (name) r.name = name;
+  const name = parseName(text, spec.services, awaiting === "name" || awaiting === "codeName"); if (name) r.name = name;
   const code = /\b([0-9a-f]{32})\b/.exec(t); if (code) r.bookingId = code[1];
+  else if (awaiting === "code" || /\bcode\b/.test(t)) { const c = parseCode(text); if (c) r.bookingCode = c; }
   if (YES.test(t)) r.yes = true;
   else if (NO.test(t)) r.no = true;
   const ch = /\b(?:the )?(first|second|third|fourth|last|1st|2nd|3rd|4th)( one| option)?\b/.exec(t);
@@ -240,9 +244,26 @@ Only fill a field when the caller actually said it. Never guess.`;
 }
 
 /** Deterministic first; the model fills only what is still missing, and its answers are validated. */
+/** Words that show the caller expressed a day or a time, in English and a few South African languages. */
+const DATE_WORDS = new RegExp(`\\b(${["today", "tonight", "tomorrow", "tmrw", "weekend", "kusasa", "ngomso", "namhlanje", "vandag", "volgende week", "next week",
+  "mon(day)?", "tue(s|sday)?", "wed(nesday)?", "thu(rs|rsday)?", "fri(day)?", "sat(urday)?", "sun(day)?",
+  "jan(uary)?", "feb(ruary)?", "march", "april", "may", "june", "july", "aug(ust)?", "sep(t|tember)?", "oct(ober)?", "nov(ember)?", "dec(ember)?"].join("|")})\\b`);
+const TIME_WORDS = new RegExp(`\\b(${["noon", "midday", "midnight", "half past", "quarter past", "quarter to", "oclock", "o clock", "am", "pm", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "ihora", "uur"].join("|")})\\b`);
+
+const DIGIT_WORDS: Record<string, string> = { ZERO: "0", OH: "0", ONE: "1", TWO: "2", THREE: "3", FOUR: "4", FIVE: "5", SIX: "6", SEVEN: "7", EIGHT: "8", NINE: "9" };
+/** A six-character booking code, typed ("K7P-Q2M") or spoken letter by letter ("k 7 p, q two m"). */
+export function parseCode(text: string): string | undefined {
+  const up = text.toUpperCase();
+  const m = /\b([0-9A-Z]{3})[\s-]?([0-9A-Z]{3})\b/.exec(up.replace(/\b(MY|THE|CODE|IS|BOOKING|IT'?S)\b/g, " "));
+  if (m && /\d/.test(m[1] + m[2]) && /[A-Z]/.test(m[1] + m[2])) { const c = normalizeCode(m[1] + m[2]); if (c) return c; }
+  const toks = up.split(/[^0-9A-Z]+/).map((w) => DIGIT_WORDS[w] ?? w).filter((w) => w.length === 1 || (w.length <= 3 && /\d/.test(w)));
+  const joined = toks.join("");
+  return joined.length === 6 ? normalizeCode(joined) ?? undefined : undefined;
+}
+
 export async function understand(ai: AiBinding | undefined, models: string[], spec: BusinessSpec, text: string, now: Date, awaiting: Awaiting, budget: () => Promise<boolean> = async () => true): Promise<Nlu & { usedModel: boolean }> {
   const det = parseUtterance(text, spec, now, awaiting);
-  const needsModel = ai && (det.intent === "none" || (det.intent === "book" && !det.serviceId && !det.serviceOptions && awaiting === "service")) && !det.yes && !det.no && !det.bookingId;
+  const needsModel = ai && (det.intent === "none" || (det.intent === "book" && !det.serviceId && !det.serviceOptions && awaiting === "service")) && !det.yes && !det.no && !det.bookingId && !det.bookingCode;
   if (!needsModel || !(await budget())) return { ...det, usedModel: false };
   try {
     const o = await aiJson(ai!, models, [{ role: "system", content: nluPrompt(spec, now, awaiting) }, { role: "user", content: text.slice(0, 500) }], NLU_SCHEMA, 120, "nlu");
@@ -250,8 +271,12 @@ export async function understand(ai: AiBinding | undefined, models: string[], sp
     const out: Nlu = { ...det };
     if (det.intent === "none" && typeof o.intent === "string" && ["book", "services", "price", "hours", "cancel", "greeting", "thanks"].includes(o.intent)) out.intent = o.intent as Intent;
     if (!out.serviceId && typeof o.service === "string" && o.service.trim()) { const m = matchService(o.service, spec.services); if (m.id) out.serviceId = m.id; }
-    if (!out.date && typeof o.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.date)) { const d = DateTime.fromISO(o.date, { zone: spec.timezone }); if (d.isValid && d >= today && d <= today.plus({ days: spec.maxAdvanceDays })) out.date = o.date; }
-    if (!out.time && typeof o.time === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(o.time)) out.time = o.time;
+    // The model may only fill a date or time the caller actually expressed: never invent one.
+    const said = normalize(text);
+    const saidDate = /\d/.test(said) || DATE_WORDS.test(said);
+    const saidTime = /\d/.test(said) || TIME_WORDS.test(said);
+    if (!out.date && saidDate && typeof o.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.date)) { const d = DateTime.fromISO(o.date, { zone: spec.timezone }); if (d.isValid && d >= today && d <= today.plus({ days: spec.maxAdvanceDays })) out.date = o.date; }
+    if (!out.time && saidTime && typeof o.time === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(o.time)) out.time = o.time;
     if (!out.name && typeof o.name === "string") { const n = parseName(`my name is ${o.name}`, spec.services, false); if (n && normalize(text).includes(normalize(n).split(" ")[0])) out.name = n; }
     return { ...out, usedModel: true };
   } catch {

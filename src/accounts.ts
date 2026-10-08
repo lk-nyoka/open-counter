@@ -13,8 +13,7 @@ import {
 } from "./auth.js";
 import {
   allow, bookingStats, countBusinesses, createDemoMerchant, deleteBusiness, getBooking, getBusiness, getMerchant, listBookings,
-  listBusinesses, putBusiness, putDraft, takeDraft, updateBusiness, upsertGoogleMerchant,
-} from "./store.js";
+  listBusinesses, putBusiness, putDraft, takeDraft, updateBusiness, upsertGoogleMerchant, savePushSub, deletePushSub } from "./store.js";
 
 export interface AccountsEnv extends OAuthEnv { DB: D1Like; SESSION_SECRET?: string; FRONTEND_ORIGINS?: string }
 export interface AccountsCtx {
@@ -226,6 +225,18 @@ export async function handleAccounts(req: Request, env: AccountsEnv, ctx: Accoun
       return json({ merchant: me, googleSignIn: oauthConfigured(env), businesses: businesses.map((b) => ({ slug: b.slug, name: b.name, acceptingBookings: b.acceptingBookings, calendar: calendarKind(b), links: links(url.origin, b) })) });
     }
 
+    // This device wants a notification for every new booking (Web Push).
+    if (path === "/api/merchant/push" && (req.method === "POST" || req.method === "DELETE")) {
+      const body = await readJson(req);
+      const endpoint = typeof body?.endpoint === "string" ? body.endpoint : "";
+      if (!/^https:\/\/[^\s]{10,1000}$/.test(endpoint)) return err(400, "bad_request", "Invalid subscription.");
+      if (req.method === "DELETE") { await deletePushSub(env.DB, endpoint, me.id); return json({ ok: true }); }
+      const p256dh = String(body?.keys?.p256dh ?? ""), auth = String(body?.keys?.auth ?? "");
+      if (!/^[A-Za-z0-9_-]{80,100}$/.test(p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(auth)) return err(400, "bad_request", "Invalid subscription keys.");
+      await savePushSub(env.DB, me.id, { endpoint, p256dh, auth }, nowSec);
+      return json({ ok: true });
+    }
+
     // Create another business from a draft (owner already signed in).
     if (path === "/api/merchant/businesses" && req.method === "POST") {
       const body = await readJson(req);
@@ -320,6 +331,12 @@ export async function handleAccounts(req: Request, env: AccountsEnv, ctx: Accoun
         idempotencyKey: typeof body.idempotencyKey === "string" ? body.idempotencyKey.slice(0, 64) : undefined,
       });
       return json(r, r.ok ? 201 : 409);
+    }
+    // Cancel later with the short code and the name on the booking (what a person has, without the secret id).
+    if (sub === "/cancel" && req.method === "POST") {
+      const body = await readJson(req);
+      const r = await cancel(spec, ctx.deps(spec, "web"), { code: String(body?.code ?? ""), customerName: String(body?.customerName ?? "") });
+      return json(r, r.ok ? 200 : r.code === "rate_limited" ? 429 : 404);
     }
     const pc = /^\/bookings\/([0-9a-f]{32})\/cancel$/.exec(sub);
     if (pc && req.method === "POST") {

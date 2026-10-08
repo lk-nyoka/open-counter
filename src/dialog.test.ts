@@ -112,3 +112,21 @@ test("the model is optional: with it down, everything above still works", async 
 test("sayTime", () => {
   assert.equal(sayTime("15:00"), "3 pm"); assert.equal(sayTime("09:30"), "9:30 am"); assert.equal(sayTime("12:00"), "12 pm");
 });
+
+test("a customer cancels later by reading out the short code, and is asked for the name", async () => {
+  const { d, deps } = setup();
+  await d.handle("I'd like a haircut on Friday at 10am, my name is Lindiwe");
+  let r = await d.confirm(true);
+  assert.match(r.say, /Your booking code is \w \w \w, \w \w \w\. Keep it/);
+  const code: string = r.booked.code;
+
+  // A new call, a new dialog: nothing remembered.
+  const later = createDialog({ info: T.getBusinessInfo(spec), tool: async (n: string, a: any) => (n === "cancel" ? T.cancel(spec, deps, a) : T.checkAvailability(spec, deps, a)), understand: async (text: string, aw: any) => understand(undefined, ["m"], spec, text, NOW, aw) });
+  r = await later.handle("I need to cancel my booking");
+  assert.match(r.say, /six letters and numbers/);
+  r = await later.handle(code.toLowerCase().replace("-", " ").split("").join(" "));
+  assert.match(r.say, /what name is the booking under/);
+  r = await later.handle("Lindiwe");
+  assert.match(r.say, /Done, booking .* is cancelled/);
+  assert.equal([...deps.calendar.events.values()].filter((e) => !e.cancelled).length, 0);
+});

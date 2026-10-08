@@ -20,7 +20,7 @@ Open Counter is an MCP server (spec 2025-11-25, Streamable HTTP). It understands
    - No slots? The result explains why in `message` and gives `nextAvailable`. Read the message and offer the next time.
 4. **Read back, then wait for yes.** Call `book` with `customerConfirmed: false`. Say the returned `message` (service, day, time, price, name) and wait for a clear yes. "Maybe", silence or a question is not a yes.
 5. **Book.** After the yes, call `book` again with the same details, `customerConfirmed: true`, and an `idempotencyKey` (any 8 to 64 character string). If the call times out, retry with the **same** key; it will never double-book.
-6. **Confirm.** Say the `summary`. Give the person the `bookingId`: it is the only way to cancel. On a screen, the booking card shows it with the receipt of checks.
+6. **Confirm.** Say the `summary`. It includes the six-character booking `code` (like "K7P-Q2M") spelled out; the person needs it, with their name, to cancel. Keep the `bookingId` too if you can store it. On a screen, the booking card shows the code with the receipt of checks.
 
 ## When the server says no
 
@@ -38,7 +38,7 @@ Every refusal sets `isError`, a `code`, a plain-language `message`, and `failedC
 
 ## Cancel
 
-Ask for the booking code, confirm which booking it is, then call `cancel` with `bookingId`. Say the returned `summary`.
+Call `cancel` with the `bookingId` if you have it. Otherwise ask for the six-character booking code and the name the booking is under, and call `cancel` with `code` and `customerName`. A wrong code or name returns `not_found`; ask them to read the code again. Say the returned `summary`.
 
 ## Never
 

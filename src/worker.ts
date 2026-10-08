@@ -16,6 +16,10 @@ import { decrypt, sessionSecret, userAccessToken } from "./auth.js";
 import { MemoryCalendar } from "./adapters/memory.js";
 import { handleApi, type ApiEnv } from "./api.js";
 import { originAllowed } from "./accounts.js";
+import { DateTime } from "luxon";
+import { sendPush, vapidFromEnv } from "./webpush.js";
+import type { BookingLog } from "./ports.js";
+import { pushSubsFor, deletePushSub } from "./store.js";
 import { allow, getBusiness, getPublished, getRefreshEnc, listListed, purgeDemoData } from "./store.js";
 import type { CalendarPort, Deps } from "./ports.js";
 
@@ -34,7 +38,7 @@ export default {
     console.log("purged demo data", n);
   },
 
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, exec?: { waitUntil(p: Promise<unknown>): void }): Promise<Response> {
     const url = new URL(request.url);
 
     // Demo mode keeps the shared demo calendar in memory. Owners' own businesses use their Google account or the D1 calendar.
@@ -58,7 +62,7 @@ export default {
     const now = () => new Date();
     const ip = request.headers.get("cf-connecting-ip") ?? "";
     const deps = (_spec: BusinessSpec, channel: string): Deps => ({
-      calendar, locks: new D1Locks(env.DB), now, newId: randomId, log: new D1BookingLog(env.DB), channel, calendarLabel: calendarLabel(_spec),
+      calendar, locks: new D1Locks(env.DB), now, newId: randomId, log: withOwnerAlerts(new D1BookingLog(env.DB), _spec, env, (p) => (exec ? exec.waitUntil(p) : void p.catch(() => {}))), channel, calendarLabel: calendarLabel(_spec),
       // Google calendars are remote and slow-ish: serve availability from the short cache. The built-in calendar is D1 and already fast.
       availability: _spec.calendarId.startsWith("internal:") ? undefined : cachedReader,
       limit: (key, max, win) => allow(env.DB, key, max, win),
@@ -91,6 +95,36 @@ export default {
     return new Response(res.body, { status: res.status, headers: h });
   }
 };
+
+const VIA: Record<string, string> = { mcp: "an AI assistant", voice: "your voice link", web: "your booking page" };
+
+/**
+ * The bookings ledger, plus a phone notification to the owner for every booking a customer makes
+ * (not the ones the owner adds). Sent after the response, so it never slows a booking down.
+ */
+function withOwnerAlerts(log: BookingLog, spec: BusinessSpec, env: Env, later: (p: Promise<unknown>) => void): BookingLog {
+  const vapid = vapidFromEnv(env as Record<string, string>);
+  if (!vapid) return log;
+  return {
+    ...log,
+    cancelled: log.cancelled.bind(log),
+    findByPrefix: log.findByPrefix?.bind(log),
+    async record(r) {
+      await log.record(r);
+      if (r.channel === "owner") return;
+      later((async () => {
+        const owner = await getBusiness(env.DB, spec.slug);
+        if (!owner) return; // bundled demo businesses have no owner account
+        const when = DateTime.fromISO(r.start).setZone(spec.timezone).toFormat("ccc d LLL, h:mm a");
+        const message = { title: `New booking · ${spec.name}`, body: `${r.serviceName}, ${when}, for ${r.customerName}. Booked through ${VIA[r.channel] ?? "Open Counter"}.`, url: `/?s=owner&business=${spec.slug}`, tag: r.id };
+        for (const s of await pushSubsFor(env.DB, owner.merchantId)) {
+          const res = await sendPush({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, message, vapid).catch(() => "error" as const);
+          if (res === "gone") await deletePushSub(env.DB, s.endpoint);
+        }
+      })().catch((e) => console.error("owner alert failed", e)));
+    },
+  };
+}
 
 /** Listed businesses: the bundled demo plus owners who opted in. Read per request (D1 is fast; the list is small). */
 async function listedSpecs(db: Env["DB"], strEnv: Record<string, string>): Promise<BusinessSpec[]> {

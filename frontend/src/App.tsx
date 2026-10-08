@@ -100,6 +100,13 @@ export default function App() {
 
   const changed = (b: Business) => setOwned((o) => ({ ...o, [b.slug]: b }));
 
+  async function deleted(slug: string) {
+    setOwned((o) => { const n = { ...o }; delete n[slug]; return n; });
+    const m = await loadMe().catch(() => null);
+    const next = m?.businesses.find((b) => b.slug !== slug)?.slug;
+    go(next ? 'owner' : 'setup', next);
+  }
+
   function screen() {
     if (!meReady) return <Loading />;
     if (error) return (
@@ -129,7 +136,7 @@ export default function App() {
         if (!business) return <Loading text="Opening your business…" />;
         return loc.screen === 'owner'
           ? <Owner business={business} businesses={(me!.businesses as any) as Business[]} merchant={me!.merchant} onSwitch={(s) => go('owner', s)} onChanged={changed} />
-          : <Settings business={business} onSaved={changed} />;
+          : <Settings business={business} onSaved={changed} onDeleted={deleted} />;
     }
   }
 

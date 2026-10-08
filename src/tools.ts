@@ -256,6 +256,7 @@ function confirmation(spec: BusinessSpec, deps: Deps, bookingId: string, s: { na
     confirmed: true as const,
     replay,
     bookingId,
+    code: shortCode(bookingId),
     business: spec.name,
     service: s.name,
     customerName,
@@ -265,13 +266,52 @@ function confirmation(spec: BusinessSpec, deps: Deps, bookingId: string, s: { na
     end: end.setZone(spec.timezone).toISO()!,
     startLocal: local.toFormat("ccc d LLL yyyy, HH:mm"),
     when,
-    summary: `Booked: ${s.name} at ${spec.name}, ${when}, ${s.price} ${spec.currency}, for ${customerName}. Keep the bookingId to cancel later.`,
+    summary: `Booked: ${s.name} at ${spec.name}, ${when}, ${s.price} ${spec.currency}, for ${customerName}. The booking code is ${spokenCode(shortCode(bookingId))}; with the name, it is all they need to cancel.`,
   };
 }
 
-/** The bookingId is a random bearer secret handed only to the customer who booked. */
-export async function cancel(spec: BusinessSpec, deps: Deps, input: { bookingId: string }) {
-  if (!/^[0-9a-f]{32}$/.test(input.bookingId)) return fail("not_found", "No such booking.");
+// ---------- Short booking codes: six characters a person can read out, e.g. "K7P-Q2M".
+// Derived from the bookingId (its first 30 bits, Crockford base32: no I, L, O or U), so nothing new is stored.
+const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export function shortCode(bookingId: string): string {
+  const v = parseInt(bookingId.slice(0, 8), 16) >>> 2;
+  let out = "";
+  for (let i = 5; i >= 0; i--) out += B32[(v >>> (i * 5)) & 31];
+  return `${out.slice(0, 3)}-${out.slice(3)}`;
+}
+/** Read a code however it was typed or heard: "k7p q2m", "K-7-P-Q-2-M", "k7pq2m". Returns the canonical form or null. */
+export function normalizeCode(text: string): string | null {
+  const t = text.toUpperCase().replace(/[^0-9A-Z]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+  if (!/^[0-9A-HJKMNP-TV-Z]{6}$/.test(t)) return null;
+  return `${t.slice(0, 3)}-${t.slice(3)}`;
+}
+/** The 7-hex-digit prefix a code was made from (28 of its 30 bits), for an indexed lookup. */
+function codePrefix(code: string): string {
+  const raw = code.replace("-", "");
+  let v = 0;
+  for (const ch of raw) v = v * 32 + B32.indexOf(ch);
+  return ((v << 2) >>> 0).toString(16).padStart(8, "0").slice(0, 7);
+}
+/** "K7P-Q2M" -> "K 7 P, Q 2 M": easier to hear and repeat. */
+export const spokenCode = (code: string) => code.split("-").map((p) => p.split("").join(" ")).join(", ");
+const firstName = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z ]/g, " ").trim().split(/\s+/)[0] ?? "";
+
+/**
+ * Cancel with the bookingId (a random bearer secret handed only to the customer), or with the short code plus the
+ * name on the booking, which is what a person can say aloud. A wrong code or name gets the same "no such booking".
+ */
+export async function cancel(spec: BusinessSpec, deps: Deps, input: { bookingId?: string; code?: string; customerName?: string }) {
+  if (!input.bookingId && input.code) {
+    if (deps.limit && !(await deps.limit(`cancel:${spec.slug}${deps.client ? ":" + deps.client : ""}`, 20, 3600))) return fail("rate_limited", "Too many attempts. Please try again later.");
+    const code = normalizeCode(input.code);
+    const who = firstName(input.customerName ?? "");
+    if (!code || !who) return fail("not_found", "No booking matches that code and name. Check the code, and give the name the booking was made under.");
+    const rows = (await deps.log?.findByPrefix?.(spec.slug, codePrefix(code))) ?? [];
+    const hit = rows.find((r) => shortCode(r.id) === code && firstName(r.customerName) === who);
+    if (!hit) return fail("not_found", "No booking matches that code and name. Check the code, and give the name the booking was made under.");
+    input = { bookingId: hit.id };
+  }
+  if (!input.bookingId || !/^[0-9a-f]{32}$/.test(input.bookingId)) return fail("not_found", "No such booking.");
   const ev = await deps.calendar.getEvent(spec.calendarId, input.bookingId);
   if (!ev) return fail("not_found", "No such booking.");
   if (Date.parse(ev.start) <= deps.now().getTime()) return fail("already_started", "This booking has already started and cannot be cancelled.");
@@ -281,5 +321,5 @@ export async function cancel(spec: BusinessSpec, deps: Deps, input: { bookingId:
   await deps.locks.release(spec.slug, units, input.bookingId); // free the slot for others right away
   await deps.log?.cancelled(spec.slug, input.bookingId, Math.floor(deps.now().getTime() / 1000)).catch((e) => console.error("ledger cancel failed", e));
   const when = sayWhen(DateTime.fromISO(ev.start).setZone(spec.timezone), deps.now());
-  return { ok: true as const, cancelled: true as const, bookingId: input.bookingId, business: spec.name, summary: `Cancelled the booking at ${spec.name} for ${when}. The time is free again.` };
+  return { ok: true as const, cancelled: true as const, bookingId: input.bookingId, code: shortCode(input.bookingId), business: spec.name, summary: `Cancelled the booking at ${spec.name} for ${when}. The time is free again.` };
 }

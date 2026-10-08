@@ -114,7 +114,7 @@ class ConfirmBeforeBooking(HookProvider):
             self.readback = content.get("readBack")
         if content.get("confirmed"):
             self.out(f"\n  ✓ Booked. The server checked: " + "; ".join(c["label"] for c in content.get("checks", [])))
-            self.out(f"  Booking code: {content.get('bookingId')}\n")
+            self.out(f"  Booking code: {content.get('code') or content.get('bookingId')}\n")
             self.readback = None
 
 

@@ -63,6 +63,8 @@ export interface BookingRecord {
 export interface BookingLog {
   record(r: BookingRecord): Promise<void>;
   cancelled(businessSlug: string, id: string, atEpochSec: number): Promise<void>;
+  /** Confirmed bookings whose id starts with `idPrefix` (used to resolve a short spoken booking code). */
+  findByPrefix?(businessSlug: string, idPrefix: string): Promise<{ id: string; customerName: string; start: string }[]>;
 }
 
 export interface Deps {

@@ -20,6 +20,15 @@ export class D1BookingLog implements BookingLog {
       .run();
   }
 
+  async findByPrefix(slug: string, idPrefix: string): Promise<{ id: string; customerName: string; start: string }[]> {
+    if (!/^[0-9a-f]{4,32}$/.test(idPrefix)) return [];
+    const { results } = await this.db
+      .prepare("SELECT id, customer_name, start_utc FROM bookings WHERE business_slug = ?1 AND status = 'confirmed' AND substr(id, 1, ?3) = ?2 LIMIT 10")
+      .bind(slug, idPrefix, idPrefix.length)
+      .all<{ id: string; customer_name: string | null; start_utc: string }>();
+    return results.map((r) => ({ id: r.id, customerName: r.customer_name ?? "", start: r.start_utc }));
+  }
+
   async cancelled(slug: string, id: string, at: number): Promise<void> {
     await this.db.prepare("UPDATE bookings SET status = 'cancelled', cancelled_at = ?3 WHERE business_slug = ?1 AND id = ?2").bind(slug, id, at).run();
   }

@@ -74,3 +74,13 @@ CREATE TABLE IF NOT EXISTS drafts (
   draft_json TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+-- Owners' devices that asked for a notification on every new booking (Web Push). One row per browser subscription.
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint    TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS push_subs_by_merchant ON push_subs (merchant_id);

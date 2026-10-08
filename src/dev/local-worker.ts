@@ -7,7 +7,8 @@ import worker from "../worker.js";
 import { d1Shim } from "./d1-shim.js";
 import { FakeAI } from "./fake-ai.js";
 
-const env = { DB: d1Shim().d1, AI: new FakeAI(), DEMO_MODE: "1" } as never;
+// Optional: VAPID_PUBLIC_KEY / VAPID_PRIVATE_JWK from the environment turn on booking alerts locally.
+const env = { DB: d1Shim().d1, AI: new FakeAI(), DEMO_MODE: "1", ...(process.env.VAPID_PUBLIC_KEY ? { VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY, VAPID_PRIVATE_JWK: process.env.VAPID_PRIVATE_JWK } : {}) } as never;
 const types: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript" };
 const port = Number(process.env.PORT ?? 8792);
 

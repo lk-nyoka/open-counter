@@ -11,6 +11,9 @@ const addDays = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDa
 const dow = (iso) => new Date(iso + "T12:00:00Z").getUTCDay();
 
 /** "15:00" -> "3 pm", "14:15" -> "2:15 pm" (reads well aloud and on screen). */
+/** "K7P-Q2M" -> "K 7 P, Q 2 M": letter by letter, so it can be heard and repeated. */
+export function sayCode(c) { return String(c).split("-").map((p) => p.split("").join(" ")).join(", "); }
+
 export function sayTime(t) {
   let h = Number(t.slice(0, 2)); const m = t.slice(3, 5); const ap = h >= 12 ? "pm" : "am";
   h = h % 12 || 12;
@@ -78,7 +81,8 @@ export function createDialog({ info, tool, understand }) {
     if (what === "date") return `What day would you like to come in${s ? ` for ${aService(s)}` : ""}?`;
     if (what === "time") return st.offered.length ? `Which time would you like: ${sayList(st.offered.map(sayTime))}?` : "What time would suit you?";
     if (what === "name") return "What name should I put the booking under?";
-    if (what === "code") return "Please read me your booking code. It's the code you were given when you booked.";
+    if (what === "code") return "Please read me your booking code. It's six letters and numbers, like K 7 P, Q 2 M.";
+    if (what === "codeName") return "And what name is the booking under?";
     if (what === "confirm") return "Shall I book it? Please say yes or no.";
     return "How can I help? I can tell you about our services, prices and hours, or book you in.";
   }
@@ -134,14 +138,28 @@ export function createDialog({ info, tool, understand }) {
     const r = await tool("book", { serviceId: s.id, start: slot.start, customerName: st.name, customerConfirmed: true, idempotencyKey: st.idemKey });
     cache.delete(`${s.id}|${st.date}`);
     if (r && r.ok) {
-      st.lastBooking = { id: r.bookingId, service: r.service, when: r.startLocal, on: onDay(st.date), time: st.time };
+      st.lastBooking = { id: r.bookingId, code: r.code, service: r.service, when: r.startLocal, on: onDay(st.date), time: st.time };
       st.serviceId = st.date = st.time = st.part = null; st.offered = []; st.awaiting = null; st.idemKey = null;
-      return reply(`You're booked: ${aService(s)} ${st.lastBooking.on} at ${sayTime(st.lastBooking.time)}. Your booking code is on the screen; keep it in case you need to cancel. Anything else?`, { booked: r });
+      const code = r.code ? ` Your booking code is ${sayCode(r.code)}. Keep it in case you need to cancel.` : " Your booking code is on the screen; keep it in case you need to cancel.";
+      return reply(`You're booked: ${aService(s)} ${st.lastBooking.on} at ${sayTime(st.lastBooking.time)}.${code} Anything else?`, { booked: r });
     }
     st.idemKey = null;
     if (r && (r.code === "slot_taken" || r.code === "busy")) { st.time = null; return plan("Sorry, someone just took that time."); }
     st.awaiting = null;
     return reply(`Sorry, I couldn't book that: ${(r && r.message) || "the booking system didn't answer"}. Would you like to try another time?`);
+  }
+
+  async function cancelByCode(code, name) {
+    st.pendingCode = null;
+    const r = await tool("cancel", { code, customerName: name });
+    st.awaiting = null;
+    if (r && r.ok) {
+      if (st.lastBooking && st.lastBooking.id === r.bookingId) st.lastBooking = null;
+      st.serviceId = st.date = st.time = st.part = null; st.offered = []; st.idemKey = null;
+      return reply(`Done, booking ${sayCode(code)} is cancelled. Anything else?`, { cancelled: r.bookingId });
+    }
+    if (r && r.code === "not_found") { st.awaiting = "code"; return reply(`I couldn't find a booking with code ${sayCode(code)} under ${name}. Could you read the code again?`); }
+    return reply(`I couldn't cancel that booking: ${(r && r.message) || "the booking system didn't answer"}.`);
   }
 
   async function cancelBooking(id) {
@@ -173,13 +191,23 @@ export function createDialog({ info, tool, understand }) {
 
     // Cancelling.
     if (u.bookingId && (u.intent === "cancel" || st.awaiting === "code" || !slotChange)) return cancelBooking(u.bookingId);
+    if (st.awaiting === "codeName" && st.pendingCode) {
+      if (u.no) { st.awaiting = null; st.pendingCode = null; return reply("Okay, nothing was cancelled. Anything else?"); }
+      if (u.name) { st.name = u.name; return cancelByCode(st.pendingCode, u.name); }
+      return reply(ask("codeName"));
+    }
+    if (u.bookingCode && (u.intent === "cancel" || st.awaiting === "code" || !slotChange)) {
+      const name = u.name || st.name;
+      if (name) return cancelByCode(u.bookingCode, name);
+      st.pendingCode = u.bookingCode; st.awaiting = "codeName"; return reply(ask("codeName"));
+    }
     if (u.intent === "cancel") {
       if (st.lastBooking) { st.awaiting = "cancelConfirm"; return reply(`Do you want to cancel your ${st.lastBooking.service.toLowerCase()} ${st.lastBooking.on} at ${sayTime(st.lastBooking.time)}?`); }
       return reply(`Sure. ${ask("code")}`);
     }
-    if (st.awaiting === "code" && !u.bookingId) {
+    if (st.awaiting === "code" && !u.bookingId && !u.bookingCode) {
       if (u.no) { st.awaiting = null; return reply("Okay, nothing was cancelled. Anything else?"); }
-      if (!slotChange) return reply(`Sorry, I didn't catch a booking code. It's a long code of letters and numbers. ${ask("code")}`);
+      if (!slotChange) return reply(`Sorry, I didn't catch a booking code. ${ask("code")}`);
     }
 
     // Fill in what we heard.

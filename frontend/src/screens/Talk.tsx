@@ -160,7 +160,7 @@ export function Talk({ business }: { business: Business }) {
       <div className="sticky bottom-0 mt-10 pt-4 pb-5 bg-gradient-to-t from-canvas via-canvas to-transparent">
         <form className="flex items-center gap-3" onSubmit={(e) => { e.preventDefault(); send(text); }}>
           <button type="button" onClick={listen} disabled={busy && !listening}
-            className={`shrink-0 grid place-items-center w-14 h-14 rounded-full transition-all ${listening ? 'bg-amber text-white shadow-[0_0_0_8px_var(--color-amber-soft)]' : 'bg-ink text-white hover:bg-black'}`}
+            className={`shrink-0 grid place-items-center w-14 h-14 rounded-full transition-all ${listening ? 'bg-amber-deep text-white shadow-[0_0_0_8px_var(--color-amber-soft)]' : 'bg-ink text-white hover:bg-black'}`}
             aria-label={listening ? 'Stop listening' : 'Speak to Ozza'}>
             {listening ? <Square className="w-5 h-5" fill="currentColor" aria-hidden /> : <Mic className="w-6 h-6" aria-hidden />}
           </button>

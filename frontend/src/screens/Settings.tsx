@@ -9,7 +9,7 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 const DAY_NUM = [1, 2, 3, 4, 5, 6, 0];
 
 /** Services, hours and booking rules, in plain words. Saving goes through the same server validation as everything else. */
-export function Settings({ business, onSaved }: { business: Business; onSaved: (b: Business) => void }) {
+export function Settings({ business, onSaved, onDeleted }: { business: Business; onSaved: (b: Business) => void; onDeleted: (slug: string) => void }) {
   const [name, setName] = useState(business.name);
   const [services, setServices] = useState<Service[]>(business.services.map((s) => ({ ...s })));
   const [hours, setHours] = useState<Record<number, BusinessHour | null>>(() => {
@@ -21,6 +21,15 @@ export function Settings({ business, onSaved }: { business: Business; onSaved: (
   const [buffer, setBuffer] = useState(business.bufferMin);
   const [advance, setAdvance] = useState(business.maxAdvanceDays);
   const [listed, setListed] = useState(!!business.listed);
+  const [confirmName, setConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [delErr, setDelErr] = useState<string | null>(null);
+
+  async function remove() {
+    setDeleting(true); setDelErr(null);
+    try { await api.deleteBusiness(business.slug); onDeleted(business.slug); }
+    catch (e: any) { setDelErr(e.message || 'Could not delete.'); setDeleting(false); }
+  }
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -110,6 +119,21 @@ export function Settings({ business, onSaved }: { business: Business; onSaved: (
             <span className="block text-sm text-ink-2 mt-0.5">Customers can then ask an assistant like Alexa+ to "book a haircut at {business.name}" without your link. Only your name, services, prices and hours are shared; never your customers.</span>
           </span>
         </label>
+      </section>
+
+      <section className="mt-6 card p-6 !border-warn/30" aria-labelledby="delete-heading">
+        <h2 id="delete-heading" className="serif text-2xl">Delete this business</h2>
+        <p className="text-sm text-ink-2 mt-1 max-w-2xl">
+          Removes {business.name}, its booking links and every customer record Open Counter holds for it. This can't be undone.
+          {business.calendar === 'google' ? ' Appointments already in your Google Calendar stay there.' : ''}
+        </p>
+        <label className="block text-sm text-ink-2 mt-4">Type <strong className="text-ink">{business.name}</strong> to confirm
+          <input className="field mt-1 max-w-md" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} autoComplete="off" />
+        </label>
+        <button className="btn mt-4 bg-warn text-white hover:bg-[#8F3415]" onClick={remove} disabled={deleting || confirmName.trim() !== business.name.trim()}>
+          <Trash2 className="w-4 h-4" aria-hidden />{deleting ? 'Deleting…' : 'Delete business'}
+        </button>
+        {delErr && <p className="mt-3 text-warn" role="alert">{delErr}</p>}
       </section>
 
       <div className="sticky bottom-0 mt-8 py-4 bg-gradient-to-t from-canvas via-canvas to-transparent flex flex-wrap items-center gap-4">

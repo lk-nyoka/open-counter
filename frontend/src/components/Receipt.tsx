@@ -3,11 +3,17 @@ import { Check, Copy, CalendarPlus } from 'lucide-react';
 
 export interface Check { id: string; label: string; ok: boolean }
 
-/** .ics file so the customer can add the appointment to their own calendar. Built in the browser from real times. */
-function icsFor(title: string, startIso: string, endIso: string, code: string) {
+/**
+ * .ics file so the customer can add the appointment to their own calendar, with two reminders (a day before and two
+ * hours before). Built in the browser from the real booking.
+ */
+function icsFor(title: string, startIso: string, endIso: string, uid: string, code?: string) {
   const f = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Open Counter//EN', 'BEGIN:VEVENT', `UID:${code}@open-counter`, `DTSTAMP:${f(new Date().toISOString())}`,
-    `DTSTART:${f(startIso)}`, `DTEND:${f(endIso)}`, `SUMMARY:${title}`, `DESCRIPTION:Booking code ${code}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const esc = (t: string) => t.replace(/\\/g, '\\\\').replace(/[,;]/g, (m) => '\\' + m).replace(/\n/g, '\\n');
+  const note = code ? `Booking code ${code}. With your name, it cancels the booking.` : 'Booked with Open Counter.';
+  const alarm = (trigger: string) => ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(title)}`, `TRIGGER:${trigger}`, 'END:VALARM'];
+  const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Open Counter//EN', 'BEGIN:VEVENT', `UID:${uid}@open-counter`, `DTSTAMP:${f(new Date().toISOString())}`,
+    `DTSTART:${f(startIso)}`, `DTEND:${f(endIso)}`, `SUMMARY:${esc(title)}`, `DESCRIPTION:${esc(note)}`, ...alarm('-P1D'), ...alarm('-PT2H'), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
   return URL.createObjectURL(new Blob([body], { type: 'text/calendar' }));
 }
 
@@ -16,7 +22,7 @@ function icsFor(title: string, startIso: string, endIso: string, code: string) {
  * The checks come from the server's own response (`checks`), never from the page.
  */
 export function Receipt({ booking, business, onCancel }: {
-  booking: { bookingId: string; service: string; startLocal: string; start: string; end: string; checks?: Check[] };
+  booking: { bookingId: string; code?: string; service: string; startLocal: string; start: string; end: string; checks?: Check[] };
   business: string;
   onCancel?: () => void;
 }) {
@@ -44,18 +50,23 @@ export function Receipt({ booking, business, onCancel }: {
         </>
       )}
 
-      <div className="mt-6 pt-5 border-t hairline flex flex-wrap items-center gap-3">
-        <div className="mr-auto">
-          <p className="eyebrow">Booking code</p>
-          <code className="text-[13px] break-all">{booking.bookingId}</code>
+      <div className="mt-6 pt-5 border-t hairline">
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <div className="mr-auto">
+            <p className="eyebrow">Your booking code</p>
+            <p className="font-mono text-[28px] tracking-[0.12em] mt-1" aria-label={booking.code ? `Booking code ${booking.code.split('').join(' ')}` : undefined}>{booking.code ?? booking.bookingId.slice(0, 8)}</p>
+          </div>
+          <button className="btn btn-ghost" onClick={() => { navigator.clipboard?.writeText(booking.code ?? booking.bookingId); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
+            <Copy className="w-4 h-4" aria-hidden />{copied ? 'Copied' : 'Copy code'}
+          </button>
         </div>
-        <button className="btn btn-ghost" onClick={() => { navigator.clipboard?.writeText(booking.bookingId); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
-          <Copy className="w-4 h-4" aria-hidden />{copied ? 'Copied' : 'Copy code'}
-        </button>
-        <a className="btn btn-ghost" href={icsFor(`${booking.service} at ${business}`, booking.start, booking.end, booking.bookingId)} download="booking.ics">
-          <CalendarPlus className="w-4 h-4" aria-hidden />Add to my calendar
-        </a>
-        {onCancel && <button className="btn btn-ghost text-warn" onClick={onCancel}>Cancel booking</button>}
+        <p className="text-sm text-ink-2 mt-2">With your name, this code cancels the booking: by voice, on the booking page, or through any assistant.</p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <a className="btn btn-ghost" href={icsFor(`${booking.service} at ${business}`, booking.start, booking.end, booking.bookingId, booking.code)} download="booking.ics">
+            <CalendarPlus className="w-4 h-4" aria-hidden />Add to my calendar, with reminders
+          </a>
+          {onCancel && <button className="btn btn-ghost text-warn" onClick={onCancel}>Cancel booking</button>}
+        </div>
       </div>
     </section>
   );

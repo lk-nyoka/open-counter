@@ -109,9 +109,25 @@ export async function purgeDemoData(db: D1Like, cutoffSec: number): Promise<numb
   const old = "SELECT id FROM merchants WHERE demo = 1 AND created_at < ?1";
   await db.prepare(`DELETE FROM bookings WHERE business_slug IN (SELECT slug FROM businesses WHERE merchant_id IN (${old}))`).bind(cutoffSec).run();
   await db.prepare(`DELETE FROM businesses WHERE merchant_id IN (${old})`).bind(cutoffSec).run();
+  await db.prepare(`DELETE FROM push_subs WHERE merchant_id IN (${old})`).bind(cutoffSec).run();
   const r = await db.prepare("DELETE FROM merchants WHERE demo = 1 AND created_at < ?1").bind(cutoffSec).run();
   await db.prepare("DELETE FROM locks WHERE expires_at < ?1").bind(Math.floor(Date.now() / 1000)).run();
   return r.meta.changes;
+}
+
+// ---------------- Web Push subscriptions (owner notifications) ----------------
+
+export async function savePushSub(db: D1Like, merchantId: string, sub: { endpoint: string; p256dh: string; auth: string }, now: number): Promise<void> {
+  await db.prepare("INSERT INTO push_subs (endpoint, merchant_id, p256dh, auth, created_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (endpoint) DO UPDATE SET merchant_id = excluded.merchant_id, p256dh = excluded.p256dh, auth = excluded.auth")
+    .bind(sub.endpoint, merchantId, sub.p256dh, sub.auth, now).run();
+}
+export async function deletePushSub(db: D1Like, endpoint: string, merchantId?: string): Promise<void> {
+  if (merchantId) await db.prepare("DELETE FROM push_subs WHERE endpoint = ?1 AND merchant_id = ?2").bind(endpoint, merchantId).run();
+  else await db.prepare("DELETE FROM push_subs WHERE endpoint = ?1").bind(endpoint).run();
+}
+export async function pushSubsFor(db: D1Like, merchantId: string): Promise<{ endpoint: string; p256dh: string; auth: string }[]> {
+  const { results } = await db.prepare("SELECT endpoint, p256dh, auth FROM push_subs WHERE merchant_id = ?1 LIMIT 20").bind(merchantId).all<{ endpoint: string; p256dh: string; auth: string }>();
+  return results;
 }
 
 /** Businesses whose owners opted in to the shared directory. */

@@ -99,8 +99,8 @@ Tools (each has a `title`, `annotations`, an `outputSchema`, and a `summary` or 
 | `get_business_info` | read-only | Services, prices, hours, rules, `hoursSummary`, `summary`. |
 | `get_quote` | read-only | Price and duration of one service. |
 | `check_availability` | read-only, card | `slots[]` with `start` (pass to `book`), `startLocal`, `spoken` ("9 am"). No slots: `reason` (`closed`, `fully_booked`, `past`, `too_far_ahead`), `message`, `nextAvailable`. |
-| `book` | not read-only, card | With `customerConfirmed: false`: refusal `confirmation_required` with a human `message` and `readBack`. With `true`: the booking, `when`, `summary`, `bookingId` and `checks[]` (the eight rules passed). |
-| `cancel` | destructive, card | `summary`. |
+| `book` | not read-only, card | With `customerConfirmed: false`: refusal `confirmation_required` with a human `message` and `readBack`. With `true`: the booking, `when`, `summary`, `bookingId`, a six-character `code` to give the customer (e.g. `K7P-Q2M`, Crockford base32, derived from the id) and `checks[]` (the eight rules passed). |
+| `cancel` | destructive, card | Takes `bookingId`, or the short `code` plus `customerName`. Returns `summary`. |
 
 Refusals set `isError: true` and carry `{ ok: false, code, message, failedCheck? }`. `failedCheck` is one of
 `accepting`, `voice`, `open`, `notice`, `free`, `lock`, `confirmed`, `written`. `code: "rate_limited"` when a business

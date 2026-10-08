@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { BusyInterval, CalendarEvent, CalendarPort, Deps, LockPort, NewEvent } from "../ports.js";
+import type { BookingLog, BookingRecord, BusyInterval, CalendarEvent, CalendarPort, Deps, LockPort, NewEvent } from "../ports.js";
 
 /** In-memory fakes: used by tests and by `OPEN_COUNTER_FAKE=1` local demos. */
 export class MemoryCalendar implements CalendarPort {
@@ -45,6 +45,16 @@ export class MemoryLocks implements LockPort {
   }
 }
 
-export function memoryDeps(now: () => Date = () => new Date()): Deps & { calendar: MemoryCalendar; locks: MemoryLocks } {
-  return { calendar: new MemoryCalendar(), locks: new MemoryLocks(), now, newId: () => randomUUID().replace(/-/g, "") };
+/** The bookings ledger, in memory: what the owner's dashboard reads and short codes resolve against. */
+export class MemoryLog implements BookingLog {
+  rows = new Map<string, BookingRecord & { status: string }>();
+  async record(r: BookingRecord) { this.rows.set(r.id, { ...r, status: "confirmed" }); }
+  async cancelled(_slug: string, id: string) { const r = this.rows.get(id); if (r) r.status = "cancelled"; }
+  async findByPrefix(slug: string, idPrefix: string) {
+    return [...this.rows.values()].filter((r) => r.businessSlug === slug && r.status === "confirmed" && r.id.startsWith(idPrefix)).map((r) => ({ id: r.id, customerName: r.customerName, start: r.start }));
+  }
+}
+
+export function memoryDeps(now: () => Date = () => new Date()): Deps & { calendar: MemoryCalendar; locks: MemoryLocks; log: MemoryLog } {
+  return { calendar: new MemoryCalendar(), locks: new MemoryLocks(), now, newId: () => randomUUID().replace(/-/g, ""), log: new MemoryLog() };
 }

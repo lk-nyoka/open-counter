@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { Page } from '../components/Shell';
 import { Ozza, OzzaState } from '../components/Ozza';
 import { go } from '../lib/router';
+import { NotifyCard } from '../components/Notify';
 
 const VIA: Record<string, { label: string; Icon: any }> = {
   voice: { label: 'Voice, on your link', Icon: Mic },
@@ -94,7 +95,7 @@ export function Owner({ business, businesses, merchant, onSwitch, onChanged }: {
       <section className="pt-8 sm:pt-12 flex flex-col sm:flex-row sm:items-center gap-6">
         <Ozza state={ozza} size={112} />
         <div className="flex-1">
-          <p className="eyebrow">{greeting(tz)}{merchant?.demo ? ' · demo business (resets in a day)' : merchant?.email ? ` · ${merchant.email}` : ''}</p>
+          <p className="eyebrow">{greeting(tz)}{merchant?.demo ? ' · demo business (deleted after two days)' : merchant?.email ? ` · ${merchant.email}` : ''}</p>
           <h1 className="serif text-[34px] sm:text-[44px] leading-tight mt-2">
             {stats === null ? business.name : today ? <>Ozza has <em className="text-amber-deep">{today} booking{today === 1 ? '' : 's'}</em> for you today.</> : <>{business.name} is ready for bookings.</>}
           </h1>
@@ -124,8 +125,8 @@ export function Owner({ business, businesses, merchant, onSwitch, onChanged }: {
         <button className="btn btn-ghost" onClick={() => go('setup')}>Set up another business</button>
       </div>
 
-      <div className="mt-8 grid lg:grid-cols-[1.5fr_1fr] gap-6 items-start">
-        <section className="card p-6">
+      <div className="mt-8 grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-6 items-start">
+        <section className="card p-6 min-w-0">
           <div className="flex items-baseline justify-between">
             <h2 className="serif text-2xl">Coming up</h2>
             <span className="text-sm text-ink-3">next 30 days</span>
@@ -152,7 +153,8 @@ export function Owner({ business, businesses, merchant, onSwitch, onChanged }: {
           ))}
         </section>
 
-        <div className="space-y-6">
+        <div className="space-y-6 min-w-0">
+          <NotifyCard />
           <section className="card p-6">
             <h2 className="serif text-2xl">Share your business</h2>
             {[

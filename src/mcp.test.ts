@@ -155,3 +155,22 @@ test("housekeeping removes expired demo owners with their businesses and booking
   const bookings = (await d1.prepare("SELECT id FROM bookings").bind().all<{ id: string }>()).results.map((r) => r.id);
   assert.deepEqual(bookings, ["2"]);
 });
+
+test("short booking codes: six characters a person can say, cancel only with the matching name", async () => {
+  const env = mkEnv();
+  const P = "/mcp/demo-barber";
+  const av = (await call(env, P, "check_availability", { serviceId: "haircut", date: nextWeekday() })).structuredContent;
+  const b = (await call(env, P, "book", { serviceId: "haircut", start: av.slots[8].start, customerName: "Thandi Mokoena", customerConfirmed: true })).structuredContent;
+  assert.match(b.code, /^[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{3}$/);
+  assert.match(b.summary, /booking code is \w \w \w, \w \w \w/);
+  const heard = b.code.toLowerCase().replace("-", " ").split("").join(" "); // "k 7 p   q 2 m", as speech-to-text might give it
+  const wrong = await call(env, P, "cancel", { code: heard, customerName: "Sipho" });
+  assert.equal(wrong.structuredContent.code, "not_found", "right code, wrong name");
+  const bad = await call(env, P, "cancel", { code: "ZZZ-ZZZ", customerName: "Thandi" });
+  assert.equal(bad.structuredContent.code, "not_found");
+  const ok = (await call(env, P, "cancel", { code: heard, customerName: "thandi" })).structuredContent;
+  assert.equal(ok.cancelled, true);
+  assert.equal(ok.bookingId, b.bookingId);
+  const again = await call(env, P, "cancel", { code: b.code, customerName: "Thandi" });
+  assert.equal(again.structuredContent.code, "not_found", "a cancelled booking can't be found by code");
+});

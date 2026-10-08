@@ -40,7 +40,8 @@ def pick_model():
     """Choose a model from the environment. All options except Bedrock have free tiers that need no payment card."""
     if os.getenv("GEMINI_API_KEY"):
         from strands.models.gemini import GeminiModel
-        return GeminiModel(client_args={"api_key": os.environ["GEMINI_API_KEY"]}, model_id=os.getenv("GEMINI_MODEL", "gemini-2.5-flash")), "Gemini"
+        model_id = pick_gemini(os.environ["GEMINI_API_KEY"])
+        return GeminiModel(client_args={"api_key": os.environ["GEMINI_API_KEY"]}, model_id=model_id), f"Gemini ({model_id})"
     if os.getenv("CLOUDFLARE_API_TOKEN") and os.getenv("CLOUDFLARE_ACCOUNT_ID"):
         from strands.models.openai import OpenAIModel
         base = f"https://api.cloudflare.com/client/v4/accounts/{os.environ['CLOUDFLARE_ACCOUNT_ID']}/ai/v1"
@@ -53,12 +54,32 @@ def pick_model():
     return os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-20250514-v1:0"), "Amazon Bedrock"
 
 
+# Google retires model names often. Try the one you set, then current names, and use the first your key can reach.
+GEMINI_CANDIDATES = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3-flash", "gemini-2.5-flash"]
+
+
+def pick_gemini(api_key: str) -> str:
+    from google import genai
+    client = genai.Client(api_key=api_key)
+    wanted = [m for m in [os.getenv("GEMINI_MODEL")] if m] + GEMINI_CANDIDATES
+    errors = []
+    for model_id in wanted:
+        try:
+            client.models.get(model=model_id)
+            return model_id
+        except Exception as e:  # not found, not available to this key, etc.
+            errors.append(f"{model_id}: {str(e)[:90]}")
+    raise SystemExit("No Gemini model available to this key. Set GEMINI_MODEL to one listed at\n"
+                     "https://ai.google.dev/gemini-api/docs/models\nTried:\n  " + "\n  ".join(errors))
+
+
 class ConfirmBeforeBooking(HookProvider):
     """Client-side gate: a confirmed booking needs the human's own yes, typed here. Also prints every tool call."""
 
     def __init__(self, ask=input, out=print):
         self.ask, self.out = ask, out
         self.readback: dict | None = None
+        self.session = uuid.uuid4().hex
 
     def register_hooks(self, registry: HookRegistry, **_):
         registry.add_callback(BeforeToolCallEvent, self.before)
@@ -67,6 +88,11 @@ class ConfirmBeforeBooking(HookProvider):
     def before(self, event: BeforeToolCallEvent):
         name, args = event.tool_use["name"], event.tool_use.get("input", {}) or {}
         self.out(f"  ↳ {name}({json.dumps({k: v for k, v in args.items() if k != 'idempotencyKey'})})")
+        if name == "book" and not args.get("idempotencyKey"):
+            # Models often forget the key. Derive one from what is being booked, so a retry can never double-book.
+            import hashlib
+            basis = "|".join(str(args.get(k, "")) for k in ("business", "serviceId", "start", "customerName")) + "|" + self.session
+            event.tool_use["input"] = {**args, "idempotencyKey": "oc-" + hashlib.sha256(basis.encode()).hexdigest()[:24]}
         if name == "book" and args.get("customerConfirmed") is True:
             rb = self.readback or {}
             summary = f"{rb.get('service', args.get('serviceId'))} at {rb.get('business', args.get('business'))}, {rb.get('when', args.get('start'))}, {rb.get('price', '?')} {rb.get('currency', '')}"
@@ -101,7 +127,6 @@ def build_agent(server: str, model=None, ask=input, out=print):
         system_prompt=SYSTEM_PROMPT.format(today=datetime.now().strftime("%A %d %B %Y")),
         hooks=[ConfirmBeforeBooking(ask=ask, out=out)],
         callback_handler=None,
-        state={"idempotencyKey": uuid.uuid4().hex},
     )
     return agent, label
 

@@ -72,7 +72,29 @@ export function createDialog({ info, tool, understand }) {
     if (pool.length <= n) return pool;
     return Array.from({ length: n }, (_, i) => pool[Math.round((i * (pool.length - 1)) / (n - 1))]);
   }
-  const nearest = (list, t, n = 3) => [...list].sort((a, b) => Math.abs(toMin(a) - toMin(t)) - Math.abs(toMin(b) - toMin(t))).slice(0, n).sort();
+  // The closest free times, but spread out: 9:00, 9:15 and 9:30 are one choice said three times.
+  function nearest(list, t, n = 3, gap = 45) {
+    const picked = [];
+    for (const c of [...list].sort((a, b) => Math.abs(toMin(a) - toMin(t)) - Math.abs(toMin(b) - toMin(t)))) {
+      if (picked.every((p) => Math.abs(toMin(p) - toMin(c)) >= gap)) picked.push(c);
+      if (picked.length === n) break;
+    }
+    return picked.sort();
+  }
+  const notice = (m) => (m >= 60 && m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`);
+  /** Why a time the customer asked for can't be booked, in the words of the rule that says no. */
+  function whyNot(want, date, s, list) {
+    const ranges = info.hours.filter((h) => h.day === dow(date));
+    const m = toMin(want), end = m + (s ? s.durationMin : 0);
+    if (ranges.length) {
+      const open = Math.min(...ranges.map((h) => toMin(h.open))), close = Math.max(...ranges.map((h) => toMin(h.close)));
+      if (m < open) return { rule: "hours", text: `We open at ${sayTime(ranges.find((h) => toMin(h.open) === open).open)}, so ${sayTime(want)} isn't possible.` };
+      if (m >= close) return { rule: "hours", text: `We close at ${sayTime(ranges.find((h) => toMin(h.close) === close).close)}, so ${sayTime(want)} isn't possible.` };
+      if (!ranges.some((h) => m >= toMin(h.open) && end <= toMin(h.close))) return { rule: "hours", text: `${s ? s.name : "That"} at ${sayTime(want)} would run past our opening hours.` };
+    }
+    if (date === st.today && list.length && m < toMin(list[0]) && info.minNoticeMin) return { rule: "notice", text: `We need at least ${notice(info.minNoticeMin)} notice, so ${sayTime(want)} today is too soon.` };
+    return { rule: "taken", text: `Sorry, ${sayTime(want)} ${onDay(date)} isn't available; it's already booked.` };
+  }
 
   function ask(what) {
     st.awaiting = what;
@@ -111,10 +133,15 @@ export function createDialog({ info, tool, understand }) {
       return P(`${why} The next day with free times is ${sayDay(next)}. Would that work?`);
     }
     if (st.time && !a.map[st.time]) {
-      const want = st.time;
-      st.offered = nearest(a.list, want); st.time = null; st.awaiting = "time";
-      const early = toMin(want) < toMin(a.list[0]) && st.date === st.today;
-      return P(`Sorry, ${sayTime(want)} ${onDay(st.date)} isn't available${early ? " (we need a bit more notice)" : ""}. The closest free times are ${sayList(st.offered.map(sayTime))}. Which would you like?`);
+      const want = st.time, why = whyNot(want, st.date, s, a.list);
+      st.time = null; st.awaiting = "time";
+      if (why.rule === "hours") {
+        // Outside opening hours: offer a spread across that end of the day, not three neighbours.
+        st.offered = suggest(a.list, toMin(want) < toMin(a.list[0]) ? "morning" : "afternoon", 3);
+        return P(`${why.text} ${onDay(st.date).charAt(0).toUpperCase() + onDay(st.date).slice(1)} I have ${sayList(st.offered.map(sayTime))} free. Which would you like?`);
+      }
+      st.offered = nearest(a.list, want);
+      return P(`${why.text} The closest free times are ${sayList(st.offered.map(sayTime))}. Which would you like?`);
     }
     if (!st.time) {
       st.offered = suggest(a.list, st.part);

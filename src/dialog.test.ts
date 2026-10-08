@@ -130,3 +130,21 @@ test("a customer cancels later by reading out the short code, and is asked for t
   assert.match(r.say, /Done, booking .* is cancelled/);
   assert.equal([...deps.calendar.events.values()].filter((e) => !e.cancelled).length, 0);
 });
+
+test("a time outside opening hours names the rule and offers times spread across the day", async () => {
+  const { d } = setup();
+  const r = await d.handle("A haircut tomorrow at 3am please");
+  assert.match(r.say, /We open at 9 am, so 3 am isn't possible\. Tomorrow I have .+ free/);
+  const mins = d.state.offered.map((t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)));
+  for (let i = 1; i < mins.length; i++) assert.ok(mins[i] - mins[i - 1] >= 45, `spread out: ${d.state.offered}`);
+  const late = await setup().d.handle("A haircut tomorrow at 9pm");
+  assert.match(late.say, /We close at 6 pm, so 9 pm isn't possible/);
+});
+
+test("a taken time says it's booked and offers distinct nearby times", async () => {
+  const { d } = setup();
+  const r = await d.handle("A beard trim tomorrow at 3pm");
+  assert.match(r.say, /3 pm tomorrow isn't available; it's already booked\. The closest free times are/);
+  const mins = d.state.offered.map((t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)));
+  for (let i = 1; i < mins.length; i++) assert.ok(mins[i] - mins[i - 1] >= 45, `spread out: ${d.state.offered}`);
+});

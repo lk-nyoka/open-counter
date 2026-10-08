@@ -1,6 +1,7 @@
 // One-command deploy to Cloudflare Workers + D1 (free plan, no card).
-//   node scripts/deploy-cloudflare.mjs                       -> DEMO mode (in-memory calendar, no Google needed)
+//   node scripts/deploy-cloudflare.mjs                       -> redeploy in the same mode as last time (DEMO mode the first time)
 //   node scripts/deploy-cloudflare.mjs --key <key.json> --calendar <calendarId>   -> real Google Calendar for the demo business
+//   add --demo                              -> switch back to DEMO mode
 //   add --oauth <client_secret_....json>   -> "Sign in with Google" for owners (one-click calendar link)
 //   add --frontend https://my-frontend.app -> allow a frontend on another domain to call the API
 import { spawnSync } from "node:child_process";
@@ -29,8 +30,14 @@ if (!local.VAPID_PRIVATE_JWK) {
   local.VAPID_PRIVATE_JWK = JSON.stringify(privateKey.export({ format: "jwk" }));
   writeFileSync(SECRETS_FILE, JSON.stringify(local, null, 2));
 }
-if (!!keyPath !== !!calendar) { console.error("Pass both --key and --calendar, or neither (demo mode)."); process.exit(2); }
-const demo = !keyPath;
+if (!!keyPath !== !!calendar) { console.error("Pass both --key and --calendar, or neither."); process.exit(2); }
+// Remember Google Calendar mode: the key and calendar id stay stored in Cloudflare, so later deploys need no flags.
+// Pass --demo to switch back to the in-memory demo calendar.
+if (keyPath) local.GOOGLE_MODE = true;
+if (process.argv.includes("--demo")) local.GOOGLE_MODE = false;
+writeFileSync(SECRETS_FILE, JSON.stringify(local, null, 2));
+const demo = !local.GOOGLE_MODE;
+const sendGoogleSecrets = !!keyPath;
 
 const run = (args, { capture = false } = {}) => {
   const r = spawnSync("npx", ["wrangler", ...args], { shell: true, stdio: capture ? ["inherit", "pipe", "inherit"] : "inherit", encoding: "utf8" });
@@ -82,7 +89,7 @@ const liveUrl = (/https:\/\/[a-z0-9.-]+\.workers\.dev/i.exec(deployOut) || [])[0
 step("Storing secrets (encrypted by Cloudflare)");
 {
   const secrets = { SESSION_SECRET: local.SESSION_SECRET, VAPID_PUBLIC_KEY: local.VAPID_PUBLIC_KEY, VAPID_PRIVATE_JWK: local.VAPID_PRIVATE_JWK };
-  if (!demo) Object.assign(secrets, { GOOGLE_SERVICE_ACCOUNT_JSON: readFileSync(keyPath, "utf8"), CALENDAR_ID_DEMO_BARBER: calendar });
+  if (sendGoogleSecrets) Object.assign(secrets, { GOOGLE_SERVICE_ACCOUNT_JSON: readFileSync(keyPath, "utf8"), CALENDAR_ID_DEMO_BARBER: calendar });
   if (oauth) Object.assign(secrets, { GOOGLE_OAUTH_CLIENT_ID: oauth.client_id, GOOGLE_OAUTH_CLIENT_SECRET: oauth.client_secret });
   if (frontend) secrets.FRONTEND_ORIGINS = frontend;
   const tmp = join(tmpdir(), `oc-secrets-${Date.now()}.json`);

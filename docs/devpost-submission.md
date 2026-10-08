@@ -38,7 +38,7 @@ money and trust. We wanted the assistant to be the friendly front desk, and some
 - **Voice-first tool design.** Titles, annotations, output schemas, a spoken `summary` on every result, and the next free time instead of an empty list.
 - **MCP Apps booking card** (`ui://open-counter/booking-card.html`), written against the raw protocol.
 - **Web Push alerts.** RFC 8291 and 8292 implemented on WebCrypto, with no library.
-- **81 automated tests.** The deploy script refuses to ship if one fails.
+- **84 automated tests.** The deploy script refuses to ship if one fails.
 
 ### Challenges we ran into
 - **A small model invented availability.** We moved every decision into code.
@@ -110,7 +110,8 @@ run, and no AWS service is in the hosted path. The AWS SAM / Lambda / DynamoDB d
   - **Why it matters:** it loads nothing from the network, so it passes strict content security policies. That lowers the barrier for brands building visual Alexa+ experiences. Open Counter's booking card uses the same approach.
 
 ## Built during the hackathon?
-Yes. The first commit was on 7 October 2026, and everything in the repository was built during the submission window.
+Yes. The submission period opened on 31 August 2026; the repository's first commit (`d5c8984`) is from 7 October 2026,
+and everything in it was built after that. No earlier project was reused.
 
 ## Product feedback
 Paste from [product-feedback.md](product-feedback.md).

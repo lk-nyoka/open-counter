@@ -15,7 +15,9 @@ before anything is booked, and the customer sees a receipt of each check.
 ## The problem
 
 A barber with clippers in hand can't answer the phone. A stylist halfway through a colour can't reply to messages.
-Every missed call is a missed booking, and most independent businesses still take bookings that way. Booking
+Every missed call is a missed booking, and most independent businesses still take bookings that way. In one
+telephone study of 142 UK small businesses, 47% missed the first call
+([TelePA research, 2015](https://www.alliancevirtualoffices.com/virtual-office-blog/shocking-research-finds-small-businesses-miss-almost-half-of-incoming-calls/)). Booking
 software exists, but it asks owners to fill in forms, and it doesn't work with the voice assistants customers already
 talk to.
 
@@ -170,7 +172,7 @@ wrote the booking to Google Calendar.
 ## Quality
 
 ```
-npm test      # 81 tests, about 10 seconds
+npm test      # 84 tests, about 10 seconds
 ```
 
 The tests run the real Worker code against SQLite standing in for D1, with Google faked at the network edge. They cover:
@@ -234,10 +236,15 @@ The deploy script creates the D1 tables, keeps one stable session secret and VAP
 4. **SMS reminders:** for customers without a calendar app.
 5. **Deploy to Alexa+** as soon as the MCP Toolkit is available to us.
 
+## Built during the submission window
+
+The submission period opened on 31 August 2026. This repository's first commit is
+`d5c8984` on 7 October 2026 at 18:22 (UTC+2), and everything here was built after it: run
+`git log --reverse --format="%h %ad %s" --date=iso | head` to check. No earlier project was reused.
+
 ## How this was built
 
-Built during the hackathon window: the first commit was 7 October 2026. The work used AI coding assistants (Claude)
-for implementation and review, alongside product decisions, testing on real devices (iPhone alerts, a real Google
+The work used AI coding assistants (Claude) for implementation and review, alongside product decisions, testing on real devices (iPhone alerts, a real Google
 Calendar), and the friction log of everything that got in the way. See [`docs/friction-log.md`](docs/friction-log.md).
 
 ## Licence

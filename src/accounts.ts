@@ -91,6 +91,27 @@ const DEMO_TEMPLATE = {
   askedVoice: true, askedRules: true,
 };
 
+/** A few sample bookings, so a judge opening the demo sees a working dashboard instead of zeros. Same rules, same calendar. */
+const SAMPLES: [name: string, service: number, dayOffset: number, slot: number, channel: string][] = [
+  ["Thandi (sample)", 0, 1, 1, "voice"], ["Sipho (sample)", 1, 1, 5, "mcp"], ["Lerato (sample)", 2, 2, 2, "web"],
+  ["Ayanda (sample)", 0, 2, 9, "mcp"], ["Naledi (sample)", 2, 3, 6, "voice"],
+];
+async function seedSamples(spec: BusinessSpec, ctx: { deps: (s: BusinessSpec, channel: string) => Deps; now: () => Date }) {
+  const voiceable = spec.services.filter((s) => s.bookableByVoice);
+  if (!voiceable.length) return;
+  let day = DateTime.fromJSDate(ctx.now(), { zone: spec.timezone });
+  const days: string[] = [];
+  while (days.length < 4) { day = day.plus({ days: 1 }); if (spec.hours.some((h) => h.day === day.weekday % 7)) days.push(day.toISODate()!); }
+  for (const [name, si, d, slot, channel] of SAMPLES) {
+    const svc = voiceable[si % voiceable.length];
+    // The owner's own sample data: no read-back token or abuse limit applies to it.
+    const deps = { ...ctx.deps(spec, channel), readBackSecret: undefined, limit: undefined };
+    const av: any = await checkAvailability(spec, deps, { serviceId: svc.id, date: days[d - 1] });
+    const start = av.slots?.[Math.min(slot, (av.slots?.length ?? 1) - 1)]?.start;
+    if (start) await book(spec, deps, { serviceId: svc.id, start, customerName: name, customerConfirmed: true }).catch(() => undefined);
+  }
+}
+
 function links(origin: string, spec: BusinessSpec) {
   return {
     assistant: `${origin}/?business=${spec.slug}&view=assistant`,
@@ -206,6 +227,7 @@ export async function handleAccounts(req: Request, env: AccountsEnv, ctx: Accoun
     if (typeof body.draftId === "string" && /^[a-f0-9]{32}$/.test(body.draftId)) draft = (await takeDraft(env.DB, body.draftId, nowSec)) ?? DEMO_TEMPLATE;
     const b = await createBusiness(env.DB, ctx, merchantId, draft, "internal");
     if (!("slug" in b)) return err(400, b.error, b.message);
+    if (draft === DEMO_TEMPLATE && body.samples !== false) await seedSamples(b, ctx).catch((e) => console.error("demo samples failed", e));
     const { token, cookie } = await startSession(merchantId, true);
     return json({ token, merchant: await getMerchant(env.DB, merchantId), business: { slug: b.slug, name: b.name, links: links(url.origin, b) } }, 200, { "set-cookie": cookie });
   }

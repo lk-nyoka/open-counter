@@ -41,7 +41,8 @@ test("demo owner: sign in, see only their business, take bookings from every cha
   const { env } = mk();
   assert.equal((await call(env, "/api/me")).status, 401, "signed out");
 
-  const d = await call(env, "/api/auth/demo", { body: {} });
+  // The default demo comes with five sample bookings (tested below); this test starts empty to count its own.
+  const d = await call(env, "/api/auth/demo", { body: { samples: false } });
   assert.equal(d.status, 200);
   const cookie = cookieOf(d);
   const demo: any = await d.json();
@@ -217,4 +218,15 @@ test("MCP and API from an allow-listed frontend on another domain, including wil
   assert.equal(bad.status, 403);
   const api = await worker.fetch(new Request(`${O}/api/config`, { headers: { origin: o } }), env);
   assert.equal(api.headers.get("access-control-allow-origin"), o);
+});
+
+test("the demo business opens with sample bookings from every channel, so the dashboard is never empty", async () => {
+  const { env } = mk();
+  const d = await call(env, "/api/auth/demo", { body: {} });
+  const cookie = cookieOf(d);
+  const { business } = (await d.json()) as any;
+  const stats: any = await (await call(env, `/api/merchant/businesses/${business.slug}/stats`, { cookie })).json();
+  assert.equal(stats.upcoming, 5);
+  assert.deepEqual(Object.keys(stats.byChannel).sort(), ["mcp", "voice", "web"]);
+  assert.match(stats.next.customerName, /\(sample\)$/, "samples are labelled as samples");
 });

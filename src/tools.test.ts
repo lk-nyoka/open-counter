@@ -153,3 +153,18 @@ test("DST: slots follow business wall-clock time", async () => {
   const r: any = await checkAvailability(ny, memoryDeps(() => new Date("2026-10-01T00:00:00Z")), { serviceId: "haircut", date: "2026-11-01" }); // fall-back Sunday
   assert.equal(DateTime.fromISO(r.slots[0].start, { setZone: true }).toFormat("HH:mm ZZ"), "09:00 -05:00");
 });
+
+test("a booking carries the receipt of every check it passed; a refusal names the check that failed", async () => {
+  const deps = mk();
+  const r: any = await book(spec, deps, req());
+  ok(r);
+  assert.deepEqual(r.checks.map((c: any) => c.id), ["accepting", "voice", "open", "notice", "free", "lock", "confirmed", "written"]);
+  assert.ok(r.checks.every((c: any) => c.ok === true));
+  assert.match(r.checks.find((c: any) => c.id === "notice").label, /At least 1 hour notice/);
+  const taken: any = await book(spec, deps, req({ customerName: "Other" }));
+  assert.equal(taken.failedCheck, "lock");
+  const early: any = await book(spec, mk(), req({ start: at("07:00") }));
+  assert.equal(early.failedCheck, "open");
+  const unconfirmed: any = await book(spec, mk(), req({ customerConfirmed: false }));
+  assert.equal(unconfirmed.failedCheck, "confirmed");
+});

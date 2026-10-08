@@ -1,0 +1,53 @@
+{
+  "_note": "Draft listing for the Alexa+ MCP Toolkit, written from the documented addon.json fields and limits. Regenerate the exact file with `alexa-ai new mcp --name \"Open Counter\" --locale en-US --mcp-server-url https://open-counter.opencounter.workers.dev/mcp` and copy these values in.",
+  "name": {
+    "value": "Open Counter"
+  },
+  "locale": "en-US",
+  "shortDescription": "Book barbers, salons, groomers and studios by voice. Every rule is checked before anything is booked.",
+  "fullDescription": "Open Counter lets you book appointments at independent local businesses just by asking. Say what you need and when; Alexa finds the business, offers real free times from the owner's own calendar, reads the booking back and only books after you say yes. Open Counter checks the business's hours, notice, gaps between appointments and services that must be booked in person before anything is written, so you never get a booking the business can't honour. You get a booking code to cancel any time. Business owners set up in one spoken conversation at open-counter.opencounter.workers.dev, connect Google Calendar with one click, and choose whether to be listed.",
+  "examplePhrases": [
+    "Book a haircut at Demo Barber tomorrow morning",
+    "When is Demo Barber free on Monday?",
+    "How much is a haircut at Demo Barber?",
+    "Cancel my booking at Demo Barber"
+  ],
+  "privacyPolicyUrl": "https://open-counter.opencounter.workers.dev/privacy.html",
+  "termsOfUseUrl": "https://open-counter.opencounter.workers.dev/terms.html",
+  "mediaAssets": {
+    "icons": {
+      "light": {
+        "72x72": "https://open-counter.opencounter.workers.dev/addon/icon-72.png",
+        "64x64": "https://open-counter.opencounter.workers.dev/addon/icon-64.png",
+        "88x88": "https://open-counter.opencounter.workers.dev/addon/icon-88.png",
+        "126x126": "https://open-counter.opencounter.workers.dev/addon/icon-126.png",
+        "180x180": "https://open-counter.opencounter.workers.dev/addon/icon-180.png",
+        "241x241": "https://open-counter.opencounter.workers.dev/addon/icon-241.png"
+      }
+    },
+    "carouselImages": [
+      {
+        "uri": "https://open-counter.opencounter.workers.dev/addon/carousel-1.png",
+        "altText": "Ozza the corgi, Open Counter's companion, above the words: Book local businesses by voice."
+      }
+    ],
+    "bannerImages": [
+      {
+        "uri": "https://open-counter.opencounter.workers.dev/addon/banner.png",
+        "altText": "Open Counter: let customers book you by talking. Ozza the corgi smiles beside the text."
+      }
+    ]
+  },
+  "integrations": [
+    {
+      "type": "MCP",
+      "config": {
+        "endpoints": {
+          "default": {
+            "uri": "https://open-counter.opencounter.workers.dev/mcp"
+          }
+        }
+      }
+    }
+  ]
+}

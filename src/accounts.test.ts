@@ -157,7 +157,7 @@ test("Google: one click signs in, links the calendar, creates the business; book
   const cb = await call(env, `/auth/google/callback?code=good-code&state=${encodeURIComponent(state)}`, { cookie: `oc_oauth=${nonce}` });
   assert.equal(cb.status, 302);
   const loc = cb.headers.get("location")!;
-  assert.match(loc, /^\/dashboard\.html\?welcome=glow-studio-/);
+  assert.match(loc, /^\/\?s=owner&welcome=glow-studio-/);
   const slug = /welcome=([a-z0-9-]+)/.exec(loc)![1];
   const cookie = cookieOf(cb);
 
@@ -181,7 +181,7 @@ test("Google: one click signs in, links the calendar, creates the business; book
   const st2 = new URL(again.headers.get("location")!).searchParams.get("state")!;
   const n2 = /oc_oauth=([0-9a-f]+)/.exec(again.headers.get("set-cookie")!)![1];
   const cb2 = await call(env, `/auth/google/callback?code=good-code&state=${encodeURIComponent(st2)}`, { cookie: `oc_oauth=${n2}` });
-  assert.match(cb2.headers.get("location")!, /^\/dashboard\.html\?signedin=1/);
+  assert.match(cb2.headers.get("location")!, /^\/\?s=owner&signedin=1/);
   assert.equal((raw.prepare("SELECT count(*) AS c FROM merchants").get() as any).c, 1);
   globalThis.fetch = realFetch;
 });
@@ -196,4 +196,18 @@ test("CORS only for allow-listed frontends", async () => {
   assert.equal(demo.status, 200); assert.equal(demo.headers.get("access-control-allow-credentials"), "true");
   const evilPost = await worker.fetch(new Request(`${O}/api/auth/demo`, { method: "POST", headers: { origin: "https://evil.example" }, body: "{}" }), env);
   assert.equal(evilPost.status, 403);
+});
+
+test("MCP and API from an allow-listed frontend on another domain, including wildcard preview hosts", async () => {
+  const { env } = mk({ FRONTEND_ORIGINS: "https://my-frontend.app, https://*.preview.example" });
+  const o = "https://abc123.preview.example";
+  const pre = await worker.fetch(new Request(`${O}/mcp/demo-barber`, { method: "OPTIONS", headers: { origin: o, "access-control-request-headers": "content-type, x-oc-channel" } }), env);
+  assert.equal(pre.status, 204); assert.match(pre.headers.get("access-control-allow-headers")!, /x-oc-channel/);
+  const r = await worker.fetch(new Request(`${O}/mcp/demo-barber`, { method: "POST", headers: { origin: o, "content-type": "application/json", accept: "application/json, text/event-stream", "x-oc-channel": "voice" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_business_info", arguments: {} } }) }), env);
+  assert.equal(r.headers.get("access-control-allow-origin"), o);
+  assert.equal(((await r.json()) as any).result.structuredContent.ok, true);
+  const bad = await worker.fetch(new Request(`${O}/mcp/demo-barber`, { method: "OPTIONS", headers: { origin: "https://preview.example.evil.com" } }), env);
+  assert.equal(bad.status, 403);
+  const api = await worker.fetch(new Request(`${O}/api/config`, { headers: { origin: o } }), env);
+  assert.equal(api.headers.get("access-control-allow-origin"), o);
 });

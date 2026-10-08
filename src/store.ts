@@ -89,6 +89,8 @@ export async function updateBusiness(db: D1Like, merchantId: string, spec: Busin
 
 export async function deleteBusiness(db: D1Like, merchantId: string, slug: string): Promise<boolean> {
   const r = await db.prepare("DELETE FROM businesses WHERE slug = ?1 AND merchant_id = ?2").bind(slug, merchantId).run();
+  // The business's customer records go with it (privacy page promise).
+  if (r.meta.changes > 0) await db.prepare("DELETE FROM bookings WHERE business_slug = ?1").bind(slug).run();
   return r.meta.changes > 0;
 }
 
@@ -99,6 +101,22 @@ export async function getBusiness(db: D1Like, slug: string): Promise<{ spec: Bus
 
 export async function listBusinesses(db: D1Like, merchantId: string): Promise<BusinessSpec[]> {
   const { results } = await db.prepare("SELECT spec_json FROM businesses WHERE merchant_id = ?1 ORDER BY created_at").bind(merchantId).all<{ spec_json: string }>();
+  return results.map((r) => BusinessSpecSchema.parse(JSON.parse(r.spec_json)));
+}
+
+/** Daily housekeeping: demo owners older than the cutoff, with their businesses and bookings; expired slot locks. */
+export async function purgeDemoData(db: D1Like, cutoffSec: number): Promise<number> {
+  const old = "SELECT id FROM merchants WHERE demo = 1 AND created_at < ?1";
+  await db.prepare(`DELETE FROM bookings WHERE business_slug IN (SELECT slug FROM businesses WHERE merchant_id IN (${old}))`).bind(cutoffSec).run();
+  await db.prepare(`DELETE FROM businesses WHERE merchant_id IN (${old})`).bind(cutoffSec).run();
+  const r = await db.prepare("DELETE FROM merchants WHERE demo = 1 AND created_at < ?1").bind(cutoffSec).run();
+  await db.prepare("DELETE FROM locks WHERE expires_at < ?1").bind(Math.floor(Date.now() / 1000)).run();
+  return r.meta.changes;
+}
+
+/** Businesses whose owners opted in to the shared directory. */
+export async function listListed(db: D1Like, limit = 500): Promise<BusinessSpec[]> {
+  const { results } = await db.prepare("SELECT spec_json FROM businesses WHERE json_extract(spec_json, '$.listed') = 1 ORDER BY updated_at DESC LIMIT ?1").bind(limit).all<{ spec_json: string }>();
   return results.map((r) => BusinessSpecSchema.parse(JSON.parse(r.spec_json)));
 }
 

@@ -12,6 +12,7 @@
     {"day":5,"open":"09:00","close":"17:00"}
   ],
   "minNoticeMin": 60,
+  "listed": true,
   "services": [
     {"id":"haircut","name":"Haircut","durationMin":30,"price":120,"bookableByVoice":true},
     {"id":"full-colour","name":"Full colour","durationMin":120,"price":600,"bookableByVoice":false}

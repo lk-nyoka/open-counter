@@ -1,0 +1,228 @@
+// Open Counter booking dialog. Pure logic, no DOM: the page and the tests both use it.
+// The language model only helps UNDERSTAND the caller (see /api/assistant). Every reply here is
+// written by code from real MCP results, so the assistant cannot invent availability, prices or bookings.
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const CURRENCY_WORDS = { ZAR: "rand", USD: "dollars", EUR: "euros", GBP: "pounds", KES: "shillings", NGN: "naira", AUD: "dollars" };
+
+export const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+const addDays = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const dow = (iso) => new Date(iso + "T12:00:00Z").getUTCDay();
+
+/** "15:00" -> "3 pm", "14:15" -> "2:15 pm" (reads well aloud and on screen). */
+export function sayTime(t) {
+  let h = Number(t.slice(0, 2)); const m = t.slice(3, 5); const ap = h >= 12 ? "pm" : "am";
+  h = h % 12 || 12;
+  return m === "00" ? `${h} ${ap}` : `${h}:${m} ${ap}`;
+}
+export function sayList(items) {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+export function createDialog({ info, tool, understand }) {
+  const st = { serviceId: null, date: null, time: null, part: null, name: null, awaiting: null, offered: [], suggestDate: null, today: null, lastBooking: null, idemKey: null };
+  const cache = new Map(); // "service|date" -> { ok, list: [HH:MM], map: {HH:MM: slot}, message }
+  const svc = (id) => info.services.find((s) => s.id === id);
+  const money = (p) => `${p} ${CURRENCY_WORDS[info.currency] || info.currency}`;
+  const sayDay = (iso) => {
+    if (iso === st.today) return "today";
+    if (st.today && iso === addDays(st.today, 1)) return "tomorrow";
+    const d = new Date(iso + "T12:00:00Z");
+    return `${DAY_NAMES[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()]}`;
+  };
+  const onDay = (iso) => { const d = sayDay(iso); return d === "today" || d === "tomorrow" ? d : "on " + d; };
+  const aService = (s) => `${/^[aeiou]/i.test(s.name) ? "an" : "a"} ${s.name.toLowerCase()}`;
+  const serviceList = () => sayList(info.services.map((s) => `${s.name} (${money(s.price)})`));
+  const hoursText = () => {
+    const by = new Map();
+    for (const h of info.hours) by.set(`${h.open}|${h.close}`, [...(by.get(`${h.open}|${h.close}`) || []), h.day]);
+    const parts = [...by].map(([w, days]) => {
+      days.sort((a, b) => a - b);
+      const run = days.length > 2 && days.every((d, i) => i === 0 || d === days[i - 1] + 1);
+      const label = run ? `${DAY_NAMES[days[0]]} to ${DAY_NAMES[days[days.length - 1]]}` : sayList(days.map((d) => DAY_NAMES[d]));
+      const [o, c] = w.split("|");
+      return `${label} from ${sayTime(o)} to ${sayTime(c)}`;
+    });
+    const closed = DAY_NAMES.filter((_, i) => !info.hours.some((h) => h.day === i));
+    return parts.length ? `We're open ${sayList(parts)}${closed.length ? `, and closed on ${sayList(closed)}` : ""}.` : "We don't have opening hours set up yet.";
+  };
+  const reply = (say, extra = {}) => ({ say, ...extra });
+
+  async function slotsFor(serviceId, date) {
+    const key = `${serviceId}|${date}`;
+    if (cache.has(key)) return cache.get(key);
+    const r = await tool("check_availability", { serviceId, date });
+    const v = r && r.ok
+      ? { ok: true, list: r.slots.map((s) => s.start.slice(11, 16)), map: Object.fromEntries(r.slots.map((s) => [s.start.slice(11, 16), s])) }
+      : { ok: false, code: r && r.code, list: [], map: {}, message: (r && r.message) || "I couldn't check the diary just now." };
+    cache.set(key, v);
+    return v;
+  }
+
+  /** Pick up to n spread-out times, preferring on-the-hour and half-hour, within the asked part of the day. */
+  function suggest(list, part, n = 4) {
+    let pool = list.filter((t) => { const m = toMin(t); return part === "morning" ? m < 720 : part === "afternoon" ? m >= 720 && m < 1020 : part === "evening" ? m >= 1020 : true; });
+    if (!pool.length) pool = list;
+    const round = pool.filter((t) => t.endsWith(":00") || t.endsWith(":30"));
+    if (round.length >= n) pool = round;
+    if (pool.length <= n) return pool;
+    return Array.from({ length: n }, (_, i) => pool[Math.round((i * (pool.length - 1)) / (n - 1))]);
+  }
+  const nearest = (list, t, n = 3) => [...list].sort((a, b) => Math.abs(toMin(a) - toMin(t)) - Math.abs(toMin(b) - toMin(t))).slice(0, n).sort();
+
+  function ask(what) {
+    st.awaiting = what;
+    const s = svc(st.serviceId);
+    if (what === "service") return `Which service would you like? We offer ${serviceList()}.`;
+    if (what === "date") return `What day would you like to come in${s ? ` for ${aService(s)}` : ""}?`;
+    if (what === "time") return st.offered.length ? `Which time would you like: ${sayList(st.offered.map(sayTime))}?` : "What time would suit you?";
+    if (what === "name") return "What name should I put the booking under?";
+    if (what === "code") return "Please read me your booking code. It's the code you were given when you booked.";
+    if (what === "confirm") return "Shall I book it? Please say yes or no.";
+    return "How can I help? I can tell you about our services, prices and hours, or book you in.";
+  }
+
+  /** Decide the next step for a booking, using real availability. */
+  async function plan(prefix = "") {
+    const P = (s, extra) => reply((prefix ? prefix + " " : "") + s, extra);
+    const s = svc(st.serviceId);
+    if (!s) return P(ask("service"));
+    if (!s.bookableByVoice) {
+      st.serviceId = null; st.awaiting = null;
+      return P(`Sorry, ${s.name} can't be booked through the assistant. Please contact ${info.name} directly for that. Can I help with anything else?`);
+    }
+    if (!st.date) return P(ask("date"));
+    const a = await slotsFor(s.id, st.date);
+    if (!a.ok && (a.code === "paused" || a.code === "not_bookable_by_voice")) { cache.clear(); st.serviceId = st.date = st.time = null; st.awaiting = null; return P(`Sorry, ${a.message.charAt(0).toLowerCase() + a.message.slice(1)}`); }
+    if (!a.ok) { cache.delete(`${s.id}|${st.date}`); st.date = null; return P(`${a.message} ${ask("date")}`); }
+    if (!a.list.length) {
+      const closed = !info.hours.some((h) => h.day === dow(st.date));
+      const why = closed ? `We're closed on ${DAY_NAMES[dow(st.date)]}s.` : `There's nothing free for ${aService(s)} ${onDay(st.date)}.`;
+      let next = null;
+      for (let i = 1; i <= 7 && !next; i++) { const d = addDays(st.date, i); const r = await slotsFor(s.id, d); if (r.ok && r.list.length) next = d; }
+      st.date = null; st.time = null; st.offered = [];
+      if (!next) return P(`${why} I couldn't find a free time in the following week either. ${ask("date")}`);
+      st.suggestDate = next; st.awaiting = "date";
+      return P(`${why} The next day with free times is ${sayDay(next)}. Would that work?`);
+    }
+    if (st.time && !a.map[st.time]) {
+      const want = st.time;
+      st.offered = nearest(a.list, want); st.time = null; st.awaiting = "time";
+      const early = toMin(want) < toMin(a.list[0]) && st.date === st.today;
+      return P(`Sorry, ${sayTime(want)} ${onDay(st.date)} isn't available${early ? " (we need a bit more notice)" : ""}. The closest free times are ${sayList(st.offered.map(sayTime))}. Which would you like?`);
+    }
+    if (!st.time) {
+      st.offered = suggest(a.list, st.part);
+      const more = a.list.length > st.offered.length;
+      st.awaiting = "time";
+      const day = sayDay(st.date);
+      return P(`${day.charAt(0).toUpperCase() + day.slice(1)} I have ${sayList(st.offered.map(sayTime))} free${more ? ", among other times" : ""}. Which time suits you?`);
+    }
+    if (!st.name) return P(`${sayTime(st.time)} ${onDay(st.date)} is free. ${ask("name")}`);
+    st.awaiting = "confirm";
+    st.idemKey = st.idemKey || (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
+    const slot = a.map[st.time];
+    return P(`To confirm: ${aService(s)} ${onDay(st.date)} at ${sayTime(st.time)}, ${money(s.price)}, for ${st.name}. Shall I book it?`, {
+      confirm: { service: s.name, when: slot.startLocal, price: s.price, currency: info.currency, name: st.name },
+    });
+  }
+
+  async function book() {
+    const s = svc(st.serviceId), a = await slotsFor(s.id, st.date), slot = a.map[st.time];
+    if (!slot) { st.time = null; return plan("Sorry, that time is no longer available."); }
+    const r = await tool("book", { serviceId: s.id, start: slot.start, customerName: st.name, customerConfirmed: true, idempotencyKey: st.idemKey });
+    cache.delete(`${s.id}|${st.date}`);
+    if (r && r.ok) {
+      st.lastBooking = { id: r.bookingId, service: r.service, when: r.startLocal, on: onDay(st.date), time: st.time };
+      st.serviceId = st.date = st.time = st.part = null; st.offered = []; st.awaiting = null; st.idemKey = null;
+      return reply(`You're booked: ${aService(s)} ${st.lastBooking.on} at ${sayTime(st.lastBooking.time)}. Your booking code is on the screen; keep it in case you need to cancel. Anything else?`, { booked: r });
+    }
+    st.idemKey = null;
+    if (r && (r.code === "slot_taken" || r.code === "busy")) { st.time = null; return plan("Sorry, someone just took that time."); }
+    st.awaiting = null;
+    return reply(`Sorry, I couldn't book that: ${(r && r.message) || "the booking system didn't answer"}. Would you like to try another time?`);
+  }
+
+  async function cancelBooking(id) {
+    const r = await tool("cancel", { bookingId: id });
+    st.awaiting = null;
+    if (r && r.ok) {
+      if (st.lastBooking && st.lastBooking.id === id) st.lastBooking = null;
+      st.serviceId = st.date = st.time = st.part = null; st.offered = []; st.idemKey = null; // start fresh after a cancellation
+      return reply("Done, your booking is cancelled. Anything else?", { cancelled: id });
+    }
+    return reply(`I couldn't cancel that booking: ${(r && r.message) || "the booking system didn't answer"}.`);
+  }
+
+  async function step(u) {
+    if (u.today) st.today = u.today;
+    const slotChange = !!(u.serviceId || u.date || u.time || u.choice);
+
+    // A pending booking: only a clear yes books. Anything else either changes details or cancels the read-back.
+    if (st.awaiting === "confirm") {
+      if (u.yes && !slotChange) return book();
+      if (u.no && !slotChange) { st.time = null; st.awaiting = null; st.idemKey = null; return reply("No problem, I haven't booked anything. Would you like a different time or day?"); }
+      if (!slotChange && !u.name && u.intent !== "cancel") return reply(ask("confirm"));
+      st.idemKey = null;
+    }
+    if (st.awaiting === "cancelConfirm") {
+      if (u.yes) return cancelBooking(st.lastBooking.id);
+      if (u.no) { st.awaiting = null; return reply("Okay, I've left your booking as it is. Anything else?"); }
+    }
+
+    // Cancelling.
+    if (u.bookingId && (u.intent === "cancel" || st.awaiting === "code" || !slotChange)) return cancelBooking(u.bookingId);
+    if (u.intent === "cancel") {
+      if (st.lastBooking) { st.awaiting = "cancelConfirm"; return reply(`Do you want to cancel your ${st.lastBooking.service.toLowerCase()} ${st.lastBooking.on} at ${sayTime(st.lastBooking.time)}?`); }
+      return reply(`Sure. ${ask("code")}`);
+    }
+    if (st.awaiting === "code" && !u.bookingId) {
+      if (u.no) { st.awaiting = null; return reply("Okay, nothing was cancelled. Anything else?"); }
+      if (!slotChange) return reply(`Sorry, I didn't catch a booking code. It's a long code of letters and numbers. ${ask("code")}`);
+    }
+
+    // Fill in what we heard.
+    if (u.serviceId && u.serviceId !== st.serviceId) { st.serviceId = u.serviceId; st.offered = []; }
+    if (u.date && u.date !== st.date) { st.date = u.date; st.offered = []; }
+    if (u.yes && st.awaiting === "date" && st.suggestDate && !u.date) st.date = st.suggestDate;
+    if (u.date || st.date) st.suggestDate = null;
+    if (u.partOfDay) st.part = u.partOfDay;
+    if (u.time) st.time = u.time;
+    else if (u.choice && st.offered.length) st.time = u.choice === -1 ? st.offered[st.offered.length - 1] : st.offered[u.choice - 1] || null;
+    else if (u.yes && st.awaiting === "time" && st.offered.length === 1) st.time = st.offered[0];
+    if (u.name) st.name = u.name;
+
+    if (!st.serviceId && u.serviceOptions && u.serviceOptions.length) {
+      st.awaiting = "service";
+      return reply(`Did you mean ${sayList(u.serviceOptions.map((id) => svc(id).name))}?`.replace(/ and ([^ ]+\?)$/, " or $1"));
+    }
+
+    // Questions.
+    if (!slotChange && !u.name) {
+      if (u.intent === "services") { const r = `We offer ${serviceList()}.`; return reply(st.awaiting && st.awaiting !== "offerBook" ? `${r} ${ask(st.awaiting)}` : `${r} Would you like to book one?`); }
+      if (u.intent === "price") return reply(`Our prices are: ${serviceList()}. Would you like to book one?`);
+      if (u.intent === "hours") return reply(`${hoursText()}${st.awaiting && st.awaiting !== "offerBook" ? " " + ask(st.awaiting) : ""}`);
+      if (u.intent === "thanks") { st.awaiting = null; return reply("You're welcome! Anything else I can help with?"); }
+      if (u.intent === "greeting" && !st.awaiting) return reply(`Hi! ${ask(null)}`);
+    }
+    if (u.intent === "price" && u.serviceId && !u.date && !u.time) {
+      const s = svc(u.serviceId);
+      st.awaiting = "offerBook";
+      return reply(`${s.name} is ${money(s.price)} and takes ${s.durationMin} minutes.${s.bookableByVoice ? " Would you like to book one?" : ` It has to be booked directly with ${info.name}.`}`);
+    }
+    if (st.awaiting === "offerBook" && u.no) { st.awaiting = null; st.serviceId = null; return reply("No problem. Anything else?"); }
+
+    const progressed = slotChange || u.name || (u.yes && (st.awaiting === "offerBook" || st.awaiting === "date" || st.awaiting === "time")) || u.intent === "book";
+    if (progressed) return plan();
+    return reply(`Sorry, I didn't catch that. ${ask(st.awaiting)}`);
+  }
+
+  return {
+    state: st,
+    async handle(text) { return step(await understand(text, st.awaiting)); },
+    /** The on-screen Yes / No buttons. */
+    confirm(yes) { return step(yes ? { intent: "none", yes: true } : { intent: "none", no: true }); },
+    greeting() { return `Hi, I'm the booking assistant for ${info.name}. I can tell you about our services, prices and hours, or book you in. What would you like?`; },
+  };
+}

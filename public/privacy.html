@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy · Open Counter</title><meta name="description" content="What Open Counter keeps and why.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23E08A2E'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#FBF8F3;--ink:#1B1A17;--ink2:#5E5A53;--line:rgba(27,26,23,.12);--link:#A9601A}
+@media (prefers-color-scheme:dark){:root{--bg:#17150F;--ink:#F4EFE6;--ink2:#C9C1B3;--line:rgba(255,255,255,.14);--link:#F0A85A}}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:720px;margin:0 auto;padding:48px 20px 80px}h1{font:600 40px/1.15 Georgia,serif;letter-spacing:-.02em;margin:.2em 0}
+h2{font:600 22px/1.3 Georgia,serif;margin:2em 0 .4em}p,li{color:var(--ink2)}a{color:var(--link)}.top{border-bottom:1px solid var(--line);padding:14px 20px}
+.top a{color:var(--ink);text-decoration:none;font:20px Georgia,serif}small{color:var(--ink2)}
+</style></head><body><div class="top"><a href="/">Open Counter</a></div><main>
+<p><small>Last updated 8 October 2026</small></p>
+<h1>Privacy</h1>
+<p>Open Counter helps small businesses take bookings by voice, on their own booking page, and through AI assistants such as Alexa+. This page explains what we keep and why, in plain words.</p>
+<h2>If you book an appointment</h2>
+<ul>
+<li><strong>What we keep:</strong> the service, the time, the name you give, and a phone number only if you choose to give one.</li>
+<li><strong>Why:</strong> so the business knows who is coming. Only that business's owner can see your name and phone number.</li>
+<li><strong>Where it goes:</strong> into the business's calendar (Google Calendar or Open Counter's built-in diary) and the owner's booking list.</li>
+<li><strong>Voice:</strong> when you speak on an Open Counter page, the recording is sent to our speech-to-text service (Cloudflare Workers AI) to turn it into text, and is not stored. Assistants such as Alexa+ handle their own audio under their own privacy terms; Open Counter only receives the text request.</li>
+<li><strong>Your booking code</strong> is the only key to cancel your booking. Keep it private.</li>
+</ul>
+<h2>If you run a business on Open Counter</h2>
+<ul>
+<li><strong>Google sign-in:</strong> we receive your name, email and profile picture to create your account, and permission to add and read events in your calendar so bookings appear there and your own appointments block those times. From your own events we use only their times, to know when you are busy; their titles and details are never stored or shown to anyone.</li>
+<li>Your Google access is stored encrypted and is used only to manage bookings for your business. You can remove it at any time in your Google Account under Security, Third-party access.</li>
+<li><strong>Demo accounts</strong> (no sign-in) and everything in them are deleted automatically after two days.</li>
+<li>If you list your business in the Open Counter directory, its name, services, prices and opening hours become findable by AI assistants. Nothing about your customers is ever shared.</li>
+</ul>
+<h2>What we never do</h2>
+<ul><li>We don't sell data, show ads, or use bookings to train AI models.</li><li>We don't send customer details to anyone except the business they booked with.</li></ul>
+<h2>Keeping and deleting</h2>
+<p>Booking records are kept for the business owner while their account exists. An owner can delete their business at any time, which deletes its bookings from Open Counter. To ask for anything to be deleted or corrected, open an issue at <a href="https://github.com/lk-nyoka/open-counter/issues">github.com/lk-nyoka/open-counter</a>.</p>
+<h2>Services we use</h2>
+<p>Cloudflare (hosting, database and speech-to-text), and Google Calendar for businesses that connect it.</p>
+</main></body></html>

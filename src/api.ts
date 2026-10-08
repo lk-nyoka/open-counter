@@ -7,7 +7,7 @@ import { DateTime } from "luxon";
 import { GREETING, interviewTurn, missing, sanitizeDraft } from "./interview.js";
 import { allow, countPublished, deletePublished, putPublished } from "./store.js";
 import { serviceAccountEmail } from "./adapters/google.js";
-import { allowedOrigins, handleAccounts, type AccountsEnv } from "./accounts.js";
+import { originAllowed, handleAccounts, type AccountsEnv } from "./accounts.js";
 import { oauthConfigured } from "./auth.js";
 import type { Deps } from "./ports.js";
 
@@ -40,7 +40,7 @@ const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").repla
 const ASSISTANT_MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"];
 const INTERVIEW_MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"];
 /** Shown on the pages, so you can see at a glance which version is live. Bump on every release. */
-export const BUILD = "2026-10-08-v3";
+export const BUILD = "2026-10-08-v5";
 const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
 const models = (env: string | undefined, dflt: string[]) => { const l = (env ?? "").split(",").map((x) => x.trim()).filter(Boolean); return l.length ? l : dflt; };
 const UNITS = { llm: 3, stt: 1 }; // the daily cap is counted in units: one language-model call = 3, one transcription = 1
@@ -74,7 +74,7 @@ async function aiAllowed(env: ApiEnv, req: Request, cost = UNITS.llm): Promise<R
 
 /** CORS for allow-listed frontends on other domains (FRONTEND_ORIGINS). Same-site pages need none of this. */
 function withCors(res: Response, origin: string | null, env: ApiEnv): Response {
-  if (!origin || !allowedOrigins(env).includes(origin)) return res;
+  if (!origin || !originAllowed(env, origin)) return res;
   const h = new Headers(res.headers);
   h.set("access-control-allow-origin", origin);
   h.set("access-control-allow-credentials", "true");
@@ -85,7 +85,7 @@ function withCors(res: Response, origin: string | null, env: ApiEnv): Response {
 export async function handleApi(req: Request, env: ApiEnv, ctx: ApiCtx): Promise<Response> {
   const origin = req.headers.get("origin");
   if (req.method === "OPTIONS") {
-    if (!origin || !allowedOrigins(env).includes(origin)) return new Response(null, { status: 403 });
+    if (!origin || !originAllowed(env, origin)) return new Response(null, { status: 403 });
     return withCors(new Response(null, { status: 204, headers: { "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS", "access-control-allow-headers": "content-type, authorization", "access-control-max-age": "86400" } }), origin, env);
   }
   return withCors(await route(req, env, ctx), origin, env);
@@ -97,7 +97,7 @@ async function route(req: Request, env: ApiEnv, ctx: ApiCtx): Promise<Response> 
 
   // Writes only from this site or an allow-listed frontend: several endpoints spend the free AI allowance.
   const origin = req.headers.get("origin");
-  if (req.method !== "GET" && origin && origin !== url.origin && !allowedOrigins(env).includes(origin)) return json({ error: "forbidden" }, 403);
+  if (req.method !== "GET" && origin && origin !== url.origin && !originAllowed(env, origin)) return json({ error: "forbidden" }, 403);
 
   try {
     const acc = await handleAccounts(req, env, { resolve: ctx.resolve, deps: ctx.deps, now: ctx.now, fetch: ctx.fetch });
@@ -187,7 +187,7 @@ async function route(req: Request, env: ApiEnv, ctx: ApiCtx): Promise<Response> 
       }
       const ownerKey = hex(32);
       if (!(await putPublished(env.DB, spec, ownerKey, Math.floor(ctx.now().getTime() / 1000)))) return json({ error: "slug_collision" }, 500);
-      return json({ ok: true, slug: spec.slug, endpoint: `${url.origin}/mcp/${spec.slug}`, assistantUrl: `${url.origin}/assistant.html?business=${spec.slug}`, ownerKey, demo });
+      return json({ ok: true, slug: spec.slug, endpoint: `${url.origin}/mcp/${spec.slug}`, assistantUrl: `${url.origin}/?business=${spec.slug}&view=assistant`, ownerKey, demo });
     }
 
     const del = /^\/api\/business\/([a-z0-9-]+)$/.exec(path);

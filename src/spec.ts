@@ -29,6 +29,8 @@ export const BusinessSpecSchema = z.object({
   services: z.array(ServiceSchema).min(1),
   /** The owner's on/off switch for assistant bookings (the dashboard's "pause"). */
   acceptingBookings: z.boolean().default(true),
+  /** Opt-in: findable through the shared Open Counter directory (one Alexa+ add-on for every business). */
+  listed: z.boolean().default(false),
 });
 
 export type BusinessSpec = z.infer<typeof BusinessSpecSchema>;

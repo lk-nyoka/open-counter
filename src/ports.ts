@@ -72,4 +72,12 @@ export interface Deps {
   newId: () => string;
   log?: BookingLog;
   channel?: string;
+  /** What the receipt calls the calendar the booking was written to. */
+  calendarLabel?: string;
+  /** Optional faster reader for availability lookups (short cache). Booking always re-checks through `calendar`. */
+  availability?: CalendarPort;
+  /** Optional abuse limit: true when this key may do one more action within its window. */
+  limit?: (key: string, max: number, windowSec: number) => Promise<boolean>;
+  /** Who is calling, for per-connection limits on our own web pages (an IP). Empty for third-party MCP clients. */
+  client?: string;
 }

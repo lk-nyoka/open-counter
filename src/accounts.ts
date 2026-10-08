@@ -36,6 +36,16 @@ async function readJson(req: Request): Promise<any | null> {
   try { return t ? JSON.parse(t) : {}; } catch { return null; }
 }
 export const allowedOrigins = (env: { FRONTEND_ORIGINS?: string }) => (env.FRONTEND_ORIGINS ?? "").split(",").map((s) => s.trim().replace(/\/$/, "")).filter(Boolean);
+/** Exact origins, or "https://*.example.com" for preview hosts with random subdomains. */
+export function originAllowed(env: { FRONTEND_ORIGINS?: string }, origin: string | null | undefined): boolean {
+  if (!origin) return false;
+  return allowedOrigins(env).some((a) => {
+    if (a === origin) return true;
+    const w = /^(https?):\/\/\*\.(.+)$/.exec(a);
+    if (!w) return false;
+    try { const u = new URL(origin); return u.protocol === `${w[1]}:` && u.hostname.endsWith(`.${w[2]}`) && !u.port; } catch { return false; }
+  });
+}
 
 /** Where to send the owner after sign-in: this site, or an allow-listed frontend (which receives the token in the URL fragment). */
 function safeReturn(env: AccountsEnv, origin: string, ret: string | null | undefined): { url: string; external: boolean } {
@@ -43,10 +53,10 @@ function safeReturn(env: AccountsEnv, origin: string, ret: string | null | undef
     try {
       const u = new URL(ret, origin);
       if (u.origin === origin) return { url: u.pathname + u.search, external: false };
-      if (allowedOrigins(env).includes(u.origin)) return { url: u.toString(), external: true };
+      if (originAllowed(env, u.origin)) return { url: u.toString(), external: true };
     } catch { /* fall through */ }
   }
-  return { url: "/dashboard.html", external: false };
+  return { url: "/?s=owner", external: false };
 }
 
 /** Turn a finished interview draft into a business owned by this merchant. */
@@ -84,9 +94,10 @@ const DEMO_TEMPLATE = {
 
 function links(origin: string, spec: BusinessSpec) {
   return {
-    assistant: `${origin}/assistant.html?business=${spec.slug}`,
-    booking: `${origin}/book.html?business=${spec.slug}`,
+    assistant: `${origin}/?business=${spec.slug}&view=assistant`,
+    booking: `${origin}/?business=${spec.slug}&view=booking`,
     mcp: `${origin}/mcp/${spec.slug}`,
+    directory: `${origin}/mcp`,
   };
 }
 
@@ -104,7 +115,7 @@ function windows(spec: BusinessSpec, now: Date) {
 /** Validate an owner's edit. The address (slug) and calendar link can never be changed from the outside. */
 function applyEdit(spec: BusinessSpec, body: any): { spec?: BusinessSpec; message?: string } {
   const next: any = { ...spec };
-  for (const k of ["name", "timezone", "currency", "hours", "minNoticeMin", "maxAdvanceDays", "slotGranularityMin", "bufferMin", "acceptingBookings"]) if (body[k] !== undefined) next[k] = body[k];
+  for (const k of ["name", "timezone", "currency", "hours", "minNoticeMin", "maxAdvanceDays", "slotGranularityMin", "bufferMin", "acceptingBookings", "listed"]) if (body[k] !== undefined) next[k] = body[k];
   if (typeof next.currency === "string") next.currency = next.currency.toUpperCase();
   if (body.services !== undefined) {
     if (!Array.isArray(body.services)) return { message: "services must be a list" };
@@ -164,7 +175,7 @@ export async function handleAccounts(req: Request, env: AccountsEnv, ctx: Accoun
   }
 
   if (path === "/auth/google/callback" && req.method === "GET") {
-    const page = (title: string, msg: string) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="stylesheet" href="/app.css"><main style="display:block;max-width:560px"><section><h1>${title}</h1><p>${msg}</p><p><a href="/interview.html">Back to setup</a></p></section></main>`, { status: 400, headers: { "content-type": "text/html; charset=utf-8" } });
+    const page = (title: string, msg: string) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font:16px/1.5 system-ui,sans-serif;background:#FBF8F3;color:#1B1A17;margin:0}main{max-width:560px;margin:12vh auto;padding:0 16px}a{color:#A9601A}</style><main><h1>${title}</h1><p>${msg}</p><p><a href="/?s=setup">Back to setup</a></p></main>`, { status: 400, headers: { "content-type": "text/html; charset=utf-8" } });
     if (url.searchParams.get("error")) return page("Google sign-in was cancelled", "Nothing was changed. You can try again, or continue with the demo calendar.");
     const st = await verify<{ n: string; d?: string; r?: string; exp: number }>(secret, url.searchParams.get("state"), nowSec);
     if (!st || st.n !== readCookie(req, "oc_oauth")) return page("Sign-in expired", "That sign-in link is no longer valid. Please start again.");

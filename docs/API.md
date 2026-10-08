@@ -27,8 +27,9 @@ with codes `slot_taken`, `busy`, `outside_hours`, `too_soon`, `too_far_ahead`, `
 
 ## Frontends on another domain
 
-Deploy with `--frontend https://your-frontend.app` (comma-separate several). That origin then gets CORS with
-credentials. Sign-in from there: send the owner to
+Deploy with `--frontend https://your-frontend.app` (comma-separate several; `https://*.preview-host.com` allows
+random preview subdomains). That origin then gets CORS on `/api/*` and on `/mcp/{slug}` (allowed headers include
+`x-oc-channel`). Hosting the frontend on the same Worker needs none of this. Sign-in from there: send the owner to
 `/auth/google/start?return=https://your-frontend.app/after-login`. After Google, they come back to that URL with
 `#token=<session>` (and `&welcome=<slug>` for a new business) in the fragment. Keep the token and send it as
 `Authorization: Bearer <token>`. The demo login returns the token in its JSON body.
@@ -83,7 +84,34 @@ credentials. Sign-in from there: send the owner to
 
 ## MCP (for AI assistants)
 
-`POST /mcp/{slug}`, JSON-RPC over Streamable HTTP, stateless, protocol `2025-11-25`. Tools: `get_business_info`,
-`get_quote`, `check_availability`, `book` (requires `customerConfirmed: true` after a read-back), `cancel`.
+Streamable HTTP, stateless JSON-RPC, protocol `2025-11-25`. Two endpoints serve the same tools:
+
+| Endpoint | Use |
+|---|---|
+| `POST /mcp` | **Directory.** Every business whose owner listed it. Start with `find_business`; every other tool takes `business` (the id it returns). This is what one Alexa+ add-on registers. |
+| `POST /mcp/{slug}` | One business. Same tools without the `business` argument. |
+
+Tools (each has a `title`, `annotations`, an `outputSchema`, and a `summary` or `message` written to be said aloud):
+
+| Tool | Annotations | Returns |
+|---|---|---|
+| `find_business` (directory only) | read-only | `businesses[]` with `business`, `name`, `services`, `timezone`. No match is an error with suggestions, never an empty list. |
+| `get_business_info` | read-only | Services, prices, hours, rules, `hoursSummary`, `summary`. |
+| `get_quote` | read-only | Price and duration of one service. |
+| `check_availability` | read-only, card | `slots[]` with `start` (pass to `book`), `startLocal`, `spoken` ("9 am"). No slots: `reason` (`closed`, `fully_booked`, `past`, `too_far_ahead`), `message`, `nextAvailable`. |
+| `book` | not read-only, card | With `customerConfirmed: false`: refusal `confirmation_required` with a human `message` and `readBack`. With `true`: the booking, `when`, `summary`, `bookingId` and `checks[]` (the eight rules passed). |
+| `cancel` | destructive, card | `summary`. |
+
+Refusals set `isError: true` and carry `{ ok: false, code, message, failedCheck? }`. `failedCheck` is one of
+`accepting`, `voice`, `open`, `notice`, `free`, `lock`, `confirmed`, `written`. `code: "rate_limited"` when a business
+gets more than 40 bookings an hour, or one customer name more than 5 a day.
+
 The server enforces hours, notice, buffers, voice-blocked services, the pause switch and double-booking locks,
-whatever the assistant sends.
+whatever the assistant sends. Availability is served from a 30-second cache for Google calendars; `book` always
+re-reads the live calendar while holding the slot lock.
+
+**Booking card (MCP Apps).** `check_availability`, `book` and `cancel` carry `_meta.ui.resourceUri`
+(and the older `_meta["ui/resourceUri"]`) = `ui://open-counter/booking-card.html`, a self-contained
+`text/html;profile=mcp-app` resource. It renders free times (tap to ask), the read-back with "Yes, book it", the receipt
+with every check, or the refusal with the next free time. Taps are sent back as `ui/message`, so the assistant stays in
+charge of the conversation.

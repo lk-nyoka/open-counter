@@ -38,7 +38,8 @@ function cleanHours(x: unknown): Draft["hours"] {
 }
 
 function cleanService(x: any, taken: Set<string>): Draft["services"][number] | null {
-  const raw = clean(String(x?.name ?? "").replace(/\(.*$/, ""), 60);
+  // "a haircut is 30 minutes" → "Haircut": drop leading articles and trailing linking verbs.
+  const raw = clean(String(x?.name ?? "").replace(/\(.*$/, "").replace(/^\s*(?:an?|the|our|my|one)\s+/i, "").replace(/\s+(?:is|are|costs?|takes?|for|at|which is|=)\s*[:\-]?\s*$/i, ""), 60);
   const name = raw.charAt(0).toUpperCase() + raw.slice(1);
   const num = (v: unknown) => (typeof v === "number" ? v : Number((/\d+(?:[.,]\d+)?/.exec(String(v ?? ""))?.[0] ?? "").replace(",", ".")));
   const durationMin = Math.round(num(x?.durationMin));

@@ -1,0 +1,1 @@
+strands-agents[gemini,openai,ollama]>=1.58

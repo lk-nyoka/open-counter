@@ -8,12 +8,14 @@
     "build": "tsc -p .",
     "typecheck": "tsc -p . --noEmit",
     "dev": "tsx src/local.ts",
+    "pretest": "tsx scripts/gen-specs.ts",
     "test": "tsx --test src/*.test.ts src/adapters/*.test.ts",
     "gen:specs": "tsx scripts/gen-specs.ts",
     "build:sam": "npm run gen:specs && sam build",
     "deploy:cf": "node scripts/deploy-cloudflare.mjs",
     "dev:cf": "wrangler dev --local --var DEMO_MODE:1",
-    "dev:local": "tsx src/dev/local-worker.ts"
+    "dev:local": "tsx src/dev/local-worker.ts",
+    "build:frontend": "node scripts/build-frontend.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1147.0",

@@ -143,3 +143,12 @@ test("a single paragraph with everything, voice rule included, completes the set
   assert.equal(r.draft.name, "Glow Studio"); assert.equal(r.draft.timezone, "Africa/Johannesburg"); assert.equal(r.draft.hours.length, 6);
   assert.equal(r.draft.minNoticeMin, 120); assert.equal(r.draft.bufferMin, 15);
 });
+
+test("one natural paragraph sets up a whole business with clean service names", async () => {
+  const text = "I own Corner Cuts, a barbershop in Johannesburg, and we charge in rand. A haircut is 30 minutes for 150, a beard trim is 20 minutes for 80, and a colour treatment is 90 minutes for 450, but colour needs a consultation first so never book it by voice. We are open Monday to Friday 9 to 5 and Saturday 9 to 1. Customers must give 2 hours notice and I need 10 minutes between customers.";
+  const r: any = await _it(undefined, [], {}, [], text);
+  assert.deepEqual(r.draft.services.map((s: any) => [s.name, s.durationMin, s.price, s.bookableByVoice]), [["Haircut", 30, 150, true], ["Beard trim", 20, 80, true], ["Colour treatment", 90, 450, false]]);
+  assert.equal(r.draft.name, "Corner Cuts");
+  assert.equal(r.draft.currency, "ZAR");
+  assert.equal(r.complete, true);
+});

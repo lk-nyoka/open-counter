@@ -13,3 +13,18 @@ open-counter-hackathon-*.json
 # Local deploy secrets and Google OAuth client files
 .oc-secrets.json
 client_secret_*.json
+
+# Frontend build and local leftovers
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+*.zip
+frontend-snapshot.tgz
+backend.sha
+
+# Local state and retired code
+.wrangler/
+frontend/_retired/
+legacy-pages/
+.venv/
+__pycache__/

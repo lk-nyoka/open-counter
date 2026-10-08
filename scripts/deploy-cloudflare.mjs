@@ -39,6 +39,9 @@ if (!process.argv.includes("--skip-tests")) {
   }
 }
 
+step("Building the frontend (frontend/ -> public/)");
+if (spawnSync("npm", ["run", "build:frontend"], { shell: true, stdio: "inherit" }).status !== 0) { console.error("\nThe frontend did not build, so nothing was deployed."); process.exit(1); }
+
 step("Generating business specs");
 if (spawnSync("npm", ["run", "gen:specs"], { shell: true, stdio: "inherit" }).status !== 0) process.exit(1);
 

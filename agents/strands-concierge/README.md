@@ -56,7 +56,7 @@ You: 10 please
 Concierge: That's a haircut at Demo Barber, Monday 12 October at 10 am, 120 rand, for Thandi. Shall I book it?
 You: yes
   ↳ book({... "customerConfirmed": true})
-  Confirm booking: Haircut at Demo Barber (illustrative), Monday 12 October at 10 am, 120 ZAR? [y/N] y
+  Confirm booking: Haircut at Demo Barbershop, Monday 12 October at 10 am, 120 ZAR? [y/N] y
   ✓ Booked. The server checked: The business is taking bookings; ...
 ```
 

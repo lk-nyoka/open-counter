@@ -78,7 +78,7 @@ test("voice-ready results: spoken times, a never-empty closed day, and a human r
   assert.equal(rb.isError, true);
   assert.equal(rb.structuredContent.failedCheck, "confirmed");
   assert.doesNotMatch(rb.structuredContent.message, /T\d\d:\d\d:\d\d/, "no ISO timestamp read aloud");
-  assert.match(rb.structuredContent.message, /Haircut at Demo Barber .* at 9 am, 120 ZAR, for Thandi/);
+  assert.match(rb.structuredContent.message, /Haircut at Demo Barbershop, .* at 9 am, 120 ZAR, for Thandi/);
 
   const ok = (await call(env, P, "book", { serviceId: "haircut", start: av.slots[0].start, customerName: "Thandi", customerConfirmed: true })).structuredContent;
   assert.equal(ok.confirmed, true);
@@ -107,7 +107,7 @@ test("directory: one endpoint finds and books any listed business, and never ans
   const b = (await call(env, "/mcp", "book", { business: "demo-barber", serviceId: "haircut", start: av.slots[2].start, customerName: "Lee", customerConfirmed: true })).structuredContent;
   assert.equal(b.confirmed, true);
   assert.equal(b.businessId, "demo-barber");
-  assert.equal(b.business, "Demo Barber (illustrative)");
+  assert.equal(b.business, "Demo Barbershop");
   // Owners opt in; unlisted businesses stay out of the directory.
   const spec = BusinessSpecSchema.parse({ ...(rawSpecs[0] as object), slug: "hidden", name: "Hidden Studio", listed: false });
   assert.deepEqual(matchBusinesses([spec], "hidden").map((s) => s.slug), ["hidden"]);

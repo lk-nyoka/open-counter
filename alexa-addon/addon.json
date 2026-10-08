@@ -7,10 +7,10 @@
   "shortDescription": "Book barbers, salons, groomers and studios by voice. Every rule is checked before anything is booked.",
   "fullDescription": "Open Counter lets you book appointments at independent local businesses just by asking. Say what you need and when; Alexa finds the business, offers real free times from the owner's own calendar, reads the booking back and only books after you say yes. Open Counter checks the business's hours, notice, gaps between appointments and services that must be booked in person before anything is written, so you never get a booking the business can't honour. You get a booking code to cancel any time. Business owners set up in one spoken conversation at open-counter.opencounter.workers.dev, connect Google Calendar with one click, and choose whether to be listed.",
   "examplePhrases": [
-    "Book a haircut at Demo Barber tomorrow morning",
-    "When is Demo Barber free on Monday?",
-    "How much is a haircut at Demo Barber?",
-    "Cancel my booking at Demo Barber"
+    "Book a haircut at Demo Barbershop tomorrow morning",
+    "When is Demo Barbershop free on Monday?",
+    "How much is a haircut at Demo Barbershop?",
+    "Cancel my booking at Demo Barbershop"
   ],
   "privacyPolicyUrl": "https://open-counter.opencounter.workers.dev/privacy.html",
   "termsOfUseUrl": "https://open-counter.opencounter.workers.dev/terms.html",

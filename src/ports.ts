@@ -82,4 +82,6 @@ export interface Deps {
   limit?: (key: string, max: number, windowSec: number) => Promise<boolean>;
   /** Who is calling, for per-connection limits on our own web pages (an IP). Empty for third-party MCP clients. */
   client?: string;
+  /** When set, book() issues a signed read-back token and requires it before booking (see tools.ts). */
+  readBackSecret?: string;
 }

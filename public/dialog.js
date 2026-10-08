@@ -127,6 +127,10 @@ export function createDialog({ info, tool, understand }) {
     st.awaiting = "confirm";
     st.idemKey = st.idemKey || (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
     const slot = a.map[st.time];
+    // Ask the server for the read-back too: it returns a token that books exactly these details and nothing else.
+    const rb = await tool("book", { serviceId: s.id, start: slot.start, customerName: st.name, customerConfirmed: false });
+    if (rb && rb.code !== "confirmation_required") { st.awaiting = null; st.time = null; return P(`Sorry, I can't book that: ${(rb && rb.message) || "the booking system didn't answer"}`); }
+    st.rbToken = rb.confirmationToken || null;
     return P(`To confirm: ${aService(s)} ${onDay(st.date)} at ${sayTime(st.time)}, ${money(s.price)}, for ${st.name}. Shall I book it?`, {
       confirm: { service: s.name, when: slot.startLocal, price: s.price, currency: info.currency, name: st.name },
     });
@@ -135,13 +139,18 @@ export function createDialog({ info, tool, understand }) {
   async function book() {
     const s = svc(st.serviceId), a = await slotsFor(s.id, st.date), slot = a.map[st.time];
     if (!slot) { st.time = null; return plan("Sorry, that time is no longer available."); }
-    const r = await tool("book", { serviceId: s.id, start: slot.start, customerName: st.name, customerConfirmed: true, idempotencyKey: st.idemKey });
+    const r = await tool("book", { serviceId: s.id, start: slot.start, customerName: st.name, customerConfirmed: true, confirmationToken: st.rbToken || undefined, idempotencyKey: st.idemKey });
     cache.delete(`${s.id}|${st.date}`);
     if (r && r.ok) {
       st.lastBooking = { id: r.bookingId, code: r.code, service: r.service, when: r.startLocal, on: onDay(st.date), time: st.time };
       st.serviceId = st.date = st.time = st.part = null; st.offered = []; st.awaiting = null; st.idemKey = null;
       const code = r.code ? ` Your booking code is ${sayCode(r.code)}. Keep it in case you need to cancel.` : " Your booking code is on the screen; keep it in case you need to cancel.";
       return reply(`You're booked: ${aService(s)} ${st.lastBooking.on} at ${sayTime(st.lastBooking.time)}.${code} Anything else?`, { booked: r });
+    }
+    if (r && r.code === "confirmation_required") {
+      // The read-back expired (the customer took a while) or the details changed: read it back again.
+      st.rbToken = r.confirmationToken || null; st.awaiting = "confirm";
+      return reply(`Just to check again: ${aService(s)} ${onDay(st.date)} at ${sayTime(st.time)}, ${money(s.price)}, for ${st.name}. Shall I book it?`);
     }
     st.idemKey = null;
     if (r && (r.code === "slot_taken" || r.code === "busy")) { st.time = null; return plan("Sorry, someone just took that time."); }

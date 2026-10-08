@@ -1,6 +1,0 @@
-{
-  "name": "Open Counter",
-  "description": "AI-powered voice, web, and MCP booking platform for local independent businesses with real-time availability and smart scheduling.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

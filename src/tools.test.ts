@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { BusinessSpecSchema } from "./spec.js";
 import { memoryDeps } from "./adapters/memory.js";
 import { book, cancel, checkAvailability } from "./tools.js";
+import * as T from "./tools.js";
 
 const spec = BusinessSpecSchema.parse({
   slug: "t", name: "T", timezone: "Africa/Johannesburg", currency: "ZAR", calendarId: "cal",
@@ -167,4 +168,15 @@ test("a booking carries the receipt of every check it passed; a refusal names th
   assert.equal(early.failedCheck, "open");
   const unconfirmed: any = await book(spec, mk(), req({ customerConfirmed: false }));
   assert.equal(unconfirmed.failedCheck, "confirmed");
+});
+
+test("read-back tokens expire after 15 minutes and only match the exact details", () => {
+  const t0 = Date.parse("2026-10-07T08:00:00Z"), start = Date.parse("2026-10-08T08:00:00Z");
+  const tok = T.readBackToken("k", "shop", "haircut", start, "Sam", t0);
+  assert.equal(T.checkReadBackToken("k", tok, "shop", "haircut", start, "sam", t0 + 60_000), true, "name case does not matter");
+  assert.equal(T.checkReadBackToken("k", tok, "shop", "haircut", start, "Sam", t0 + T.READBACK_TTL_MS + 1000), false, "expired");
+  assert.equal(T.checkReadBackToken("other", tok, "shop", "haircut", start, "Sam", t0), false, "another server's secret");
+  assert.equal(T.checkReadBackToken("k", tok, "other-shop", "haircut", start, "Sam", t0), false, "another business");
+  assert.equal(T.checkReadBackToken("k", tok, "shop", "colour", start, "Sam", t0), false, "another service");
+  assert.equal(T.checkReadBackToken("k", undefined, "shop", "haircut", start, "Sam", t0), false);
 });

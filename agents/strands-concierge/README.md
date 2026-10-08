@@ -12,8 +12,10 @@ only with our own web app.
 1. **In the client.** A Strands `BeforeToolCallEvent` hook stops every `book` call with `customerConfirmed: true`
    until the person at the keyboard types `y` for that exact service, day, time and price. Whatever the model decides,
    it cannot book on its own.
-2. **On the server.** Open Counter refuses any booking that breaks a rule or lacks the confirmation, whatever the
-   client sends, and names the rule that failed.
+2. **On the server.** Open Counter books only the exact details it read back in the last 15 minutes (a signed
+   `confirmationToken`), refuses anything that breaks a rule, and names the rule that failed, whatever the client
+   sends. The server cannot hear the customer, which is why gate 1 exists. The hook also passes the token along when
+   the model drops it, but only for the exact details that were read back.
 
 An `AfterToolCallEvent` hook prints the receipt of every check the server ran.
 
@@ -55,7 +57,7 @@ You: 10 please
   ↳ book({... "customerConfirmed": false})
 Concierge: That's a haircut at Demo Barber, Monday 12 October at 10 am, 120 rand, for Thandi. Shall I book it?
 You: yes
-  ↳ book({... "customerConfirmed": true})
+  ↳ book({... "customerConfirmed": true, "confirmationToken": "…"})
   Confirm booking: Haircut at Demo Barbershop, Monday 12 October at 10 am, 120 ZAR? [y/N] y
   ✓ Booked. The server checked: The business is taking bookings; ...
 ```

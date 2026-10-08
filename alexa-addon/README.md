@@ -13,7 +13,7 @@ Open Counter is built to be one Alexa+ add-on for every business on it: the add-
 | Round trip under 500 ms | Business info ~100 ms. Availability is served from a 30-second cache; the first, uncached read of a Google calendar can exceed 500 ms |
 | MCP Apps visuals (optional) | Booking card `ui://open-counter/booking-card.html` |
 | Never return an empty result | Closed or full days return the reason and the next free time |
-| Customer knows what they commit to | `book` refuses until the read-back is confirmed |
+| Customer knows what they commit to | `book` books only details the server read back (signed `confirmationToken`, 15 minutes) |
 | Authentication | Not needed: booking is public, like phoning the shop. Customer cancels with their booking code |
 
 ## Why it is not deployed to Alexa+ yet

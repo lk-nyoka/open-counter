@@ -102,6 +102,23 @@ export function Talk({ business }: { business: Business }) {
     } catch { whisperOk.current = false; setOzza('idle'); setStatus('Voice is unavailable right now. You can type instead.'); }
   }
 
+  // Keep the read-back and the receipt clear of the sticky microphone bar, especially on phones.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!confirm && !booked) return;
+    const id = requestAnimationFrame(() => {
+      const card = cardRef.current, bar = composerRef.current;
+      if (!card) return;
+      const visibleBottom = window.innerHeight - (bar?.offsetHeight ?? 0) - 12;
+      const r = card.getBoundingClientRect();
+      // Bring the card's buttons above the bar, without pushing its top off screen.
+      const by = Math.min(r.bottom - visibleBottom, r.top - 72);
+      if (by > 0) window.scrollBy({ top: by, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [confirm, booked]);
+
   const last = [...lines].reverse().find((l) => l.who === 'ozza');
   const lastYou = [...lines].reverse().find((l) => l.who === 'you');
   const listening = ozza === 'listening';
@@ -134,7 +151,7 @@ export function Talk({ business }: { business: Business }) {
         )}
 
         {confirm && (
-          <section className="mt-8 w-full max-w-xl card p-6 rise text-left" aria-label="Confirm booking">
+          <section ref={cardRef as React.RefObject<HTMLElement>} className="mt-8 w-full max-w-xl card p-6 rise text-left" aria-label="Confirm booking">
             <p className="eyebrow">Please confirm</p>
             <p className="serif text-2xl mt-2">{confirm.service}, {confirm.when}</p>
             <p className="text-ink-2 mt-1">{confirm.price} {confirm.currency} · for {confirm.name}</p>
@@ -145,7 +162,7 @@ export function Talk({ business }: { business: Business }) {
           </section>
         )}
 
-        {booked && <div className="mt-8 w-full"><Receipt booking={booked} business={business.name} onCancel={() => send('cancel my booking')} /></div>}
+        {booked && <div ref={cardRef} className="mt-8 w-full"><Receipt booking={booked} business={business.name} onCancel={() => send('cancel my booking')} /></div>}
 
         {!started && (
           <div className="mt-8 flex flex-wrap justify-center gap-2">
@@ -157,7 +174,7 @@ export function Talk({ business }: { business: Business }) {
       </div>
 
       {/* Composer: a big microphone first, typing always works too */}
-      <div className="sticky bottom-0 mt-10 pt-4 pb-5 bg-gradient-to-t from-canvas via-canvas to-transparent">
+      <div ref={composerRef} className="sticky bottom-0 mt-10 pt-4 pb-5 bg-gradient-to-t from-canvas via-canvas to-transparent">
         <form className="flex items-center gap-3" onSubmit={(e) => { e.preventDefault(); send(text); }}>
           <button type="button" onClick={listen} disabled={busy && !listening}
             className={`shrink-0 grid place-items-center w-14 h-14 rounded-full transition-all ${listening ? 'bg-amber-deep text-white shadow-[0_0_0_8px_var(--color-amber-soft)]' : 'bg-ink text-white hover:bg-black'}`}

@@ -64,7 +64,14 @@ test("demo owner: sign in, see only their business, take bookings from every cha
   assert.equal(noConfirm.status, 409);
 
   // Any MCP client (e.g. Alexa+) and the voice page are tagged separately.
-  const mcp = (args: object, channel?: string) => worker.fetch(new Request(`${O}/mcp/${slug}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(channel ? { "x-oc-channel": channel } : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "book", arguments: args } }) }), env).then(async (r) => ((await r.json()) as any).result.structuredContent);
+  const mcp = async (args: any, channel?: string): Promise<any> => {
+    if (args.customerConfirmed === true && !args.confirmationToken) {
+      const rb = await mcpRaw({ ...args, customerConfirmed: false }, channel);
+      if (rb?.confirmationToken) args = { ...args, confirmationToken: rb.confirmationToken };
+    }
+    return mcpRaw(args, channel);
+  };
+  const mcpRaw = (args: object, channel?: string) => worker.fetch(new Request(`${O}/mcp/${slug}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(channel ? { "x-oc-channel": channel } : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "book", arguments: args } }) }), env).then(async (r) => ((await r.json()) as any).result.structuredContent);
   assert.equal((await mcp({ serviceId: "haircut", start: at("11:00"), customerName: "Sipho", customerConfirmed: true }, "voice")).ok, true);
   assert.equal((await mcp({ serviceId: "beard-trim", start: at("13:00"), customerName: "Lerato", customerConfirmed: true })).ok, true);
   assert.equal((await mcp({ serviceId: "haircut", start: at("09:00"), customerName: "Double", customerConfirmed: true })).code, "slot_taken", "the D1 calendar blocks double booking");

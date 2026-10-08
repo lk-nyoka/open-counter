@@ -68,6 +68,9 @@ export default {
       limit: (key, max, win) => allow(env.DB, key, max, win),
       // Per-connection limits only for our own pages; Alexa+ and other assistants share a few cloud IPs.
       client: channel === "voice" || channel === "web" ? ip : "",
+      // Assistants (Alexa+ and any MCP client) and the voice page must book through a server-issued read-back.
+      // The web form shows every detail on the button the customer presses; the owner books for themselves.
+      readBackSecret: channel === "mcp" || channel === "voice" ? `${secret}:readback` : undefined,
     });
     const calendarLabel = (s: BusinessSpec) => s.calendarId.startsWith("internal:") ? "the built-in calendar" : s.calendarId.startsWith("google:") || !(fallback instanceof MemoryCalendar) ? "Google Calendar" : "the demo calendar";
 

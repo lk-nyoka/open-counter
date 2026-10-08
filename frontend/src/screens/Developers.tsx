@@ -20,7 +20,7 @@ const GATES = [
   'Enough notice is given',
   'The calendar is free (your own events count)',
   'A lock is taken so two assistants can never take the same slot',
-  'The customer said yes to the read-back',
+  'Confirmed after the server read back these exact details',
   'The event is written to the calendar',
 ];
 

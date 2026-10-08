@@ -27,7 +27,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--server", default=DEFAULT_SERVER)
     a = ap.parse_args()
-    answers = iter(["n", "y"])
+    answers = iter(["y", "n", "y"])  # forged token (server refuses), human says no, human says yes
     lines = []
     agent, _ = build_agent(a.server, model="no-model-needed", ask=lambda q: (lines.append(q), next(answers))[1], out=lambda s: lines.append(s))
     t = agent.tool
@@ -50,13 +50,19 @@ def main():
     rb = data(t.book(business=biz, serviceId="haircut", start=slot["start"], customerName="Strands Smoke Test", customerConfirmed=False))
     assert rb["code"] == "confirmation_required", rb
     print("read-back:", rb["message"])
+    assert rb.get("confirmationToken"), "the server must issue a read-back token"
+    token = rb["confirmationToken"]
+
+    skipped = data(t.book(business=biz, serviceId="haircut", start=slot["start"], customerName="Strands Smoke Test", customerConfirmed=True, idempotencyKey="strands-skip-" + uuid.uuid4().hex[:12], confirmationToken="forged.token"))
+    assert skipped.get("code") == "confirmation_required", skipped
+    print("forged read-back token -> server refused:", skipped["code"])
 
     key = "strands-smoke-" + uuid.uuid4().hex[:12]
-    refused = t.book(business=biz, serviceId="haircut", start=slot["start"], customerName="Strands Smoke Test", customerConfirmed=True, idempotencyKey=key)
+    refused = t.book(business=biz, serviceId="haircut", start=slot["start"], customerName="Strands Smoke Test", customerConfirmed=True, confirmationToken=token, idempotencyKey=key)
     assert refused.get("status") == "error", refused
     print("human said no -> client gate stopped the booking:", refused["content"][0]["text"][:80])
 
-    booked = data(t.book(business=biz, serviceId="haircut", start=slot["start"], customerName="Strands Smoke Test", customerConfirmed=True, idempotencyKey=key))
+    booked = data(t.book(business=biz, serviceId="haircut", start=slot["start"], customerName="Strands Smoke Test", customerConfirmed=True, confirmationToken=token, idempotencyKey=key))
     assert booked.get("confirmed"), booked
     print("booked:", booked["summary"])
     print("checks:", len(booked["checks"]))

@@ -32,18 +32,19 @@ money and trust. We wanted the assistant to be the friendly front desk, and some
   - Notice and gaps between appointments are respected.
   - The calendar is free, re-checked while the slot is held.
   - Atomic slot locks, so ten simultaneous requests produce one booking.
-  - The customer said yes to the read-back.
+  - The booking matches a read-back the server issued (a signed token bound to the service, time and name), so an assistant cannot skip the read-back or book something different.
   - The event is written to the calendar, idempotently.
 - **The AI only understands.** A deterministic parser goes first. The language model may only fill gaps, never invent a day or time. The dialog is written in code from real MCP results.
 - **Voice-first tool design.** Titles, annotations, output schemas, a spoken `summary` on every result, and the next free time instead of an empty list.
 - **MCP Apps booking card** (`ui://open-counter/booking-card.html`), written against the raw protocol.
 - **Web Push alerts.** RFC 8291 and 8292 implemented on WebCrypto, with no library.
-- **79 automated tests.** The deploy script refuses to ship if one fails.
+- **81 automated tests.** The deploy script refuses to ship if one fails.
 
 ### Challenges we ran into
 - **A small model invented availability.** We moved every decision into code.
 - **We couldn't deploy to Alexa+.** The CLI needs an AWS account, and the toolkit is US-only. So we built the simulated path and an add-on listing ready to deploy.
-- **The 500 ms budget against a remote calendar.** We added a cache that booking never trusts.
+- **The 500 ms budget against a remote calendar.** A first, uncached Google Calendar read from South Africa takes 0.5 to 1.3 s. A 30-second cache brings repeat calls to about 35 ms, and booking never trusts it; the first call can still miss the budget.
+- **"Confirmed" can't just be a flag.** Our first version trusted `customerConfirmed: true`. Now the server signs each read-back and books only those exact details; the human "yes" stays the assistant's job, and our Strands client enforces it with a hook.
 - **Spoken booking codes.** We replaced 32-character ids with six-character codes that cancel only together with the customer's name.
 
 ### Accomplishments we're proud of
@@ -73,6 +74,7 @@ can see checked.
 - **Repo:** https://github.com/lk-nyoka/open-counter
 - **MCP endpoint:** https://open-counter.opencounter.workers.dev/mcp
 - **Demo video:** _add link_
+- **Screenshots:** https://github.com/lk-nyoka/open-counter/tree/main/docs/screenshots
 
 ## Testing instructions for judges
 No account is needed. Open the live app:
@@ -93,9 +95,10 @@ client:
 - An **`AfterToolCallEvent` hook** prints the server's receipt.
 - **Direct tool calls** (`agent.tool.book(...)`) power a model-free smoke test of the whole path.
 
-The model provider is pluggable: Amazon Bedrock by default, or Gemini, Workers AI or Ollama. We ran it end to end
-with Gemini because we have no AWS account (friction log entry 3). We also kept an AWS SAM / Lambda / DynamoDB
-deployment path (`template.yaml`, `src/lambda.ts`, a DynamoDB lock adapter).
+The model provider is pluggable: Amazon Bedrock by default, or Gemini, Workers AI or Ollama. To be precise about what
+ran: we ran it end to end with Gemini because we have no AWS account (friction log entry 3); the Bedrock path was not
+run, and no AWS service is in the hosted path. The AWS SAM / Lambda / DynamoDB deployment (`template.yaml`,
+`src/lambda.ts`, a DynamoDB lock adapter) is written but not deployed.
 
 ## Open Source fields
 - **Contribution URL:** https://github.com/lk-nyoka/mcp-apps-vanilla

@@ -137,7 +137,10 @@ $("find").onclick = async () => {
 $("yes").onclick = async () => {
   const name = $("name").value.trim();
   if (!name) { $("result").textContent = "Please enter your name."; $("result").className = "bad"; return; }
-  const r = await tool("book", { serviceId: service.id, start: slot.start, customerName: name, customerConfirmed: true, idempotencyKey: crypto.randomUUID() });
+  // Like any assistant: ask the server for the read-back first; its token books exactly those details.
+  const rb = await tool("book", { serviceId: service.id, start: slot.start, customerName: name, customerConfirmed: false });
+  if (rb.code !== "confirmation_required") { $("result").className = "bad"; $("result").textContent = `Refused (${rb.code}): ${rb.message}`; return; }
+  const r = await tool("book", { serviceId: service.id, start: slot.start, customerName: name, customerConfirmed: true, confirmationToken: rb.confirmationToken, idempotencyKey: crypto.randomUUID() });
   if (r.ok) {
     booking = r; lastBooked = { serviceId: service.id, start: slot.start };
     $("result").className = "ok"; $("result").textContent = `Booked: ${r.service}, ${r.startLocal}. Booking ID ${r.bookingId.slice(0, 8)}…`;
@@ -151,7 +154,10 @@ $("cancel").onclick = async () => {
 };
 
 async function guard(args, ok, bad) {
-  const r = await tool("book", args);
+  // Play a compliant assistant (read-back first) so each test reaches the rule it is aimed at.
+  let a = args;
+  if (a.customerConfirmed) { const rb = await tool("book", { ...a, customerConfirmed: false }); if (rb.confirmationToken) a = { ...a, confirmationToken: rb.confirmationToken }; }
+  const r = await tool("book", a);
   $("gres").className = r.ok ? "note bad" : "note ok";
   $("gres").textContent = r.ok ? ok : `${bad} Refused: ${r.code}. ${r.message}`;
 }
@@ -159,7 +165,13 @@ const base = () => ({ customerName: "Guardrail test", customerConfirmed: true })
 $("g-dup").onclick = () => guard({ ...base(), ...lastBooked }, "Unexpected: a double booking went through!", "Same slot, second customer.");
 $("g-hours").onclick = () => guard({ ...base(), serviceId: info.services.find((s) => s.bookableByVoice).id, start: $("date").value + "T03:00:00" + offset }, "Unexpected: 3am was accepted!", "3am request.");
 $("g-voice").onclick = () => { const s = info.services.find((x) => !x.bookableByVoice); if (!s) { $("gres").textContent = "This business has no voice-blocked service."; return; } guard({ ...base(), serviceId: s.id, start: $("date").value + "T10:00:00" + offset }, "Unexpected: voice-blocked service was booked!", "Owner said this is never bookable by voice."); };
-$("g-noconf").onclick = () => !slot ? ($("gres").textContent = "Pick a time slot first.") : guard({ serviceId: service.id, start: slot.start, customerName: "x", customerConfirmed: false }, "Unexpected: booked without confirmation!", "No explicit yes from the customer.");
+$("g-noconf").onclick = async () => {
+  if (!slot) { $("gres").textContent = "Pick a time slot first."; return; }
+  // An assistant that claims "confirmed" without ever getting the server's read-back.
+  const r = await tool("book", { serviceId: service.id, start: slot.start, customerName: "x", customerConfirmed: true });
+  $("gres").className = r.ok ? "note bad" : "note ok";
+  $("gres").textContent = r.ok ? "Unexpected: booked without a read-back!" : `Skipped the read-back. Refused: ${r.code}. ${r.message}`;
+};
 const enableG = () => { ["g-hours", "g-voice"].forEach((i) => ($(i).disabled = false)); };
 const origFind = $("find").onclick; $("find").onclick = async () => { await origFind(); enableG(); $("g-noconf").disabled = false; };
 init();

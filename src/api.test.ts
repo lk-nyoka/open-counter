@@ -10,7 +10,12 @@ const O = "https://t.example";
 const mkEnv = (extra: Record<string, unknown> = {}) => ({ DB: d1Shim().d1, AI: new FakeAI(), DEMO_MODE: "1", ...extra }) as never;
 const api = (env: never, path: string, body?: unknown, init: RequestInit = {}) =>
   worker.fetch(new Request(O + path, { method: body === undefined ? "GET" : "POST", headers: { "content-type": "application/json", origin: O, ...(init.headers as object) }, body: body === undefined ? undefined : JSON.stringify(body), ...init }), env);
-const mcp = async (env: never, slug: string, name: string, args: object = {}) => {
+const mcp = async (env: never, slug: string, name: string, args: any = {}): Promise<any> => {
+  // Behave like a well-behaved assistant: get the server's read-back (and its token) before confirming.
+  if (name === "book" && args.customerConfirmed === true && !args.confirmationToken) {
+    const rb = await mcp(env, slug, name, { ...args, customerConfirmed: false });
+    if (rb?.confirmationToken) args = { ...args, confirmationToken: rb.confirmationToken };
+  }
   const r = await worker.fetch(new Request(`${O}/mcp/${slug}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) }), env);
   return (await r.json() as any).result.structuredContent;
 };

@@ -46,8 +46,9 @@ const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true,
 const UI_META = { ui: { resourceUri: BOOKING_CARD_URI }, "ui/resourceUri": BOOKING_CARD_URI };
 
 const FLOW = `How to book: (1) check_availability for the service and day; only offer times it returns, never invent one. ` +
-  `(2) Call book with customerConfirmed=false (or read the details back yourself) and say the service, day, time and price to the customer. ` +
-  `(3) Only after a clear yes, call book with customerConfirmed=true and an idempotencyKey (reuse it if you retry). ` +
+  `(2) Call book with customerConfirmed=false and say the returned read-back (service, day, time, price, name) to the customer. ` +
+  `(3) Only after a clear yes, call book again with the same details, customerConfirmed=true, the confirmationToken from step 2, and an idempotencyKey (reuse it if you retry). ` +
+  `The server refuses to book details it has not read back. ` +
   `Every result has a 'summary' (or 'message') written to be said aloud. A refusal names the rule that failed in 'failedCheck'; relay its message and offer 'nextAvailable' when present.`;
 
 type Resolve = (business: string | undefined) => Promise<{ spec: BusinessSpec; deps: Deps } | { ok: false; code: string; message: string }>;
@@ -85,7 +86,7 @@ function registerBookingTools(server: McpServer, resolve: Resolve, directory: bo
   server.registerTool("book", {
     title: "Book an appointment",
     description: `Book an appointment at ${nameForText}. The customer must hear the service, day, time and price and say yes first: ` +
-      `call with customerConfirmed=false to get the read-back, then again with customerConfirmed=true after an explicit yes. ` +
+      `call with customerConfirmed=false to get the read-back and a confirmationToken, then again with the same details, customerConfirmed=true and that token after an explicit yes. ` +
       `Use a start exactly as returned by check_availability. The server re-checks hours, notice, the calendar and the confirmation, and refuses if any fail.`,
     inputSchema: {
       ...B,
@@ -94,6 +95,7 @@ function registerBookingTools(server: McpServer, resolve: Resolve, directory: bo
       customerName: z.string().describe("The name to put on the booking"),
       customerPhone: z.string().optional().describe("Optional, shown only to the business owner"),
       customerConfirmed: z.boolean().describe("true only after the customer explicitly said yes to the read-back"),
+      confirmationToken: z.string().max(64).optional().describe("The confirmationToken returned with the read-back. Required with customerConfirmed=true; valid 15 minutes for exactly those details"),
       idempotencyKey: z.string().min(8).max(64).optional().describe("Reuse the same key when retrying so you never double-book"),
     },
     outputSchema: BOOK_OUT,

@@ -20,7 +20,15 @@ async function rpc(env: never, path: string, method: string, params: object = {}
   assert.equal(r.status, 200, `${path} ${method} -> ${r.status}`);
   return (await r.json() as any);
 }
-const call = async (env: never, path: string, name: string, args: object = {}, headers: Record<string, string> = {}) => (await rpc(env, path, "tools/call", { name, arguments: args }, headers)).result;
+const rawCall = async (env: never, path: string, name: string, args: object = {}, headers: Record<string, string> = {}) => (await rpc(env, path, "tools/call", { name, arguments: args }, headers)).result;
+/** A well-behaved assistant: before book with customerConfirmed=true it gets the server's read-back and passes its token. */
+const call = async (env: never, path: string, name: string, args: any = {}, headers: Record<string, string> = {}) => {
+  if (name === "book" && args.customerConfirmed === true && !args.confirmationToken) {
+    const rb = (await rawCall(env, path, name, { ...args, customerConfirmed: false }, headers)).structuredContent;
+    if (rb?.confirmationToken) args = { ...args, confirmationToken: rb.confirmationToken };
+  }
+  return rawCall(env, path, name, args, headers);
+};
 /** Next weekday (Mon-Fri) at least two days out, in Johannesburg. */
 function nextWeekday(): string {
   let d = DateTime.now().setZone("Africa/Johannesburg").plus({ days: 2 });
@@ -173,4 +181,38 @@ test("short booking codes: six characters a person can say, cancel only with the
   assert.equal(ok.bookingId, b.bookingId);
   const again = await call(env, P, "cancel", { code: b.code, customerName: "Thandi" });
   assert.equal(again.structuredContent.code, "not_found", "a cancelled booking can't be found by code");
+});
+
+test("the server enforces the read-back: no token, a stale token or a token for other details books nothing", async () => {
+  const env = mkEnv();
+  const P = "/mcp/demo-barber";
+  const av = (await call(env, P, "check_availability", { serviceId: "haircut", date: nextWeekday() })).structuredContent;
+  const [a, b] = [av.slots[4].start, av.slots[6].start];
+  const base = { serviceId: "haircut", customerName: "Ayanda", customerConfirmed: true };
+
+  // An assistant that skips the read-back and says "confirmed" straight away gets the read-back instead of a booking.
+  const skipped = (await rawCall(env, P, "book", { ...base, start: a })).structuredContent;
+  assert.equal(skipped.code, "confirmation_required");
+  assert.match(skipped.message, /not read back to the customer first/);
+  assert.ok(skipped.confirmationToken);
+
+  // The token is bound to the details read back: another time or another name is refused.
+  const token = skipped.confirmationToken;
+  for (const other of [{ start: b }, { start: a, customerName: "Someone Else" }]) {
+    const r = (await rawCall(env, P, "book", Object.assign({}, base, { start: a }, other, { confirmationToken: token }))).structuredContent;
+    assert.equal(r.code, "confirmation_required", JSON.stringify(other));
+    assert.equal(r.failedCheck, "confirmed");
+  }
+  // A forged or truncated token is refused.
+  assert.equal((await rawCall(env, P, "book", { ...base, start: a, confirmationToken: token.slice(0, -2) + "xx" })).structuredContent.code, "confirmation_required");
+
+  // The voice page is held to the same rule.
+  assert.equal((await rawCall(env, P, "book", { ...base, start: a }, { "x-oc-channel": "voice" })).structuredContent.code, "confirmation_required");
+
+  // With the matching token it books, and the read-back is only offered for a booking that can pass the rules.
+  const ok = (await rawCall(env, P, "book", { ...base, start: a, confirmationToken: token })).structuredContent;
+  assert.equal(ok.confirmed, true);
+  const night = (await rawCall(env, P, "book", { ...base, customerConfirmed: false, start: a.slice(0, 11) + "03:00:00+02:00" })).structuredContent;
+  assert.equal(night.code, "outside_hours");
+  assert.equal(night.confirmationToken, undefined);
 });

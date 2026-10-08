@@ -88,7 +88,11 @@ test("an owner's phone is notified when a customer books, never for the owner's 
 
   let day = DateTime.now().setZone("Africa/Johannesburg").plus({ days: 2 });
   while (day.weekday > 5) day = day.plus({ days: 1 });
-  const rpc = async (name: string, args: object) => ((await (await call(`/mcp/${business.slug}`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })).json()) as any).result.structuredContent;
+  const rpc = async (name: string, args: any): Promise<any> => {
+    if (name === "book" && args.customerConfirmed === true && !args.confirmationToken) args = { ...args, confirmationToken: (await rpcRaw(name, { ...args, customerConfirmed: false }))?.confirmationToken };
+    return rpcRaw(name, args);
+  };
+  const rpcRaw = async (name: string, args: object) => ((await (await call(`/mcp/${business.slug}`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })).json()) as any).result.structuredContent;
   const av = await rpc("check_availability", { serviceId: "haircut", date: day.toISODate() });
   const b = await rpc("book", { serviceId: "haircut", start: av.slots[3].start, customerName: "Naledi", customerConfirmed: true });
   assert.equal(b.confirmed, true);

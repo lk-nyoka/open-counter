@@ -99,8 +99,16 @@ Tools (each has a `title`, `annotations`, an `outputSchema`, and a `summary` or 
 | `get_business_info` | read-only | Services, prices, hours, rules, `hoursSummary`, `summary`. |
 | `get_quote` | read-only | Price and duration of one service. |
 | `check_availability` | read-only, card | `slots[]` with `start` (pass to `book`), `startLocal`, `spoken` ("9 am"). No slots: `reason` (`closed`, `fully_booked`, `past`, `too_far_ahead`), `message`, `nextAvailable`. |
-| `book` | not read-only, card | With `customerConfirmed: false`: refusal `confirmation_required` with a human `message` and `readBack`. With `true`: the booking, `when`, `summary`, `bookingId`, a six-character `code` to give the customer (e.g. `K7P-Q2M`, Crockford base32, derived from the id) and `checks[]` (the eight rules passed). |
+| `book` | not read-only, card | With `customerConfirmed: false`: refusal `confirmation_required` with a human `message`, `readBack` and a `confirmationToken` (signed, valid 15 minutes, bound to the business, service, start and name). With `true` and that token: the booking, `when`, `summary`, `bookingId`, a six-character `code` to give the customer (e.g. `K7P-Q2M`, Crockford base32, derived from the id) and `checks[]` (the eight rules passed). |
 | `cancel` | destructive, card | Takes `bookingId`, or the short `code` plus `customerName`. Returns `summary`. |
+
+**What the server guarantees about confirmation.** For MCP clients and the voice page, `book` with
+`customerConfirmed: true` books only when it carries a `confirmationToken` the server issued with a read-back of exactly
+the same business, service, start and name in the last 15 minutes. Without one (or with a stale, forged or mismatched
+one) nothing is booked and the reply is a fresh read-back. So an assistant cannot skip the read-back or read back one
+thing and book another. The server cannot hear the customer: waiting for their yes is the assistant's job, which is why
+the Strands client adds a human approval hook. The web booking form is exempt, because the customer presses a button
+that shows every detail.
 
 Refusals set `isError: true` and carry `{ ok: false, code, message, failedCheck? }`. `failedCheck` is one of
 `accepting`, `voice`, `open`, `notice`, `free`, `lock`, `confirmed`, `written`. `code: "rate_limited"` when a business

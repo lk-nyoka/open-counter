@@ -6,8 +6,9 @@ MCP (spec 2025-11-25, Streamable HTTP), and books only after the customer says y
 
   1. Client side (this file): a Strands hook stops any `book` call with customerConfirmed=true until the human at the
      keyboard approves that exact service, day, time and price.
-  2. Server side (Open Counter): the server refuses a booking that breaks a rule or lacks the confirmation, whatever the
-     model sends.
+  2. Server side (Open Counter): the server books only details it has read back in the last 15 minutes (a signed
+     confirmationToken) and refuses anything that breaks a rule, whatever the model sends. The server cannot hear the
+     customer, which is why gate 1 exists.
 
 Run:  python concierge.py                      # chat; the model is chosen from your environment (see README)
       python concierge.py --server http://localhost:8792/mcp
@@ -30,8 +31,8 @@ DEFAULT_SERVER = "https://open-counter.opencounter.workers.dev/mcp"
 SYSTEM_PROMPT = """You are a booking concierge for independent local businesses on Open Counter.
 Use only the Open Counter tools. Never invent a business, service, price or time.
 Flow: find_business -> get_business_info -> check_availability -> call book with customerConfirmed=false to get the
-read-back -> say it to the customer and wait for a clear yes -> call book with customerConfirmed=true and the same
-idempotencyKey. Offer two to four times using each slot's 'spoken' value. If a day has no free times, say the 'message'
+read-back and a confirmationToken -> say the read-back to the customer and wait for a clear yes -> call book again with
+the same details, customerConfirmed=true, the confirmationToken and an idempotencyKey. Offer two to four times using each slot's 'spoken' value. If a day has no free times, say the 'message'
 and offer 'nextAvailable'. Keep replies short and spoken-friendly: no ISO timestamps, no markdown tables.
 Today is {today}."""
 
@@ -79,6 +80,8 @@ class ConfirmBeforeBooking(HookProvider):
     def __init__(self, ask=input, out=print):
         self.ask, self.out = ask, out
         self.readback: dict | None = None
+        self.readback_for: tuple | None = None  # the exact details the server read back
+        self.readback_token: str | None = None
         self.session = uuid.uuid4().hex
 
     def register_hooks(self, registry: HookRegistry, **_):
@@ -93,6 +96,11 @@ class ConfirmBeforeBooking(HookProvider):
             import hashlib
             basis = "|".join(str(args.get(k, "")) for k in ("business", "serviceId", "start", "customerName")) + "|" + self.session
             event.tool_use["input"] = {**args, "idempotencyKey": "oc-" + hashlib.sha256(basis.encode()).hexdigest()[:24]}
+        if name == "book" and args.get("customerConfirmed") is True and not args.get("confirmationToken"):
+            # Models often drop the token. Pass it only if these are exactly the details the server read back;
+            # otherwise the server refuses and returns a fresh read-back, which is the safe outcome.
+            if self.readback_token and self._details(args) == self.readback_for:
+                event.tool_use["input"] = {**event.tool_use["input"], "confirmationToken": self.readback_token}
         if name == "book" and args.get("customerConfirmed") is True:
             rb = self.readback or {}
             summary = f"{rb.get('service', args.get('serviceId'))} at {rb.get('business', args.get('business'))}, {rb.get('when', args.get('start'))}, {rb.get('price', '?')} {rb.get('currency', '')}"
@@ -112,10 +120,16 @@ class ConfirmBeforeBooking(HookProvider):
                     pass
         if content.get("code") == "confirmation_required":
             self.readback = content.get("readBack")
+            self.readback_token = content.get("confirmationToken")
+            self.readback_for = self._details(event.tool_use.get("input", {}) or {})
         if content.get("confirmed"):
             self.out(f"\n  ✓ Booked. The server checked: " + "; ".join(c["label"] for c in content.get("checks", [])))
             self.out(f"  Booking code: {content.get('code') or content.get('bookingId')}\n")
-            self.readback = None
+            self.readback = self.readback_token = self.readback_for = None
+
+    @staticmethod
+    def _details(args: dict) -> tuple:
+        return tuple(str(args.get(k, "")).strip().lower() for k in ("business", "serviceId", "start", "customerName"))
 
 
 def build_agent(server: str, model=None, ask=input, out=print):

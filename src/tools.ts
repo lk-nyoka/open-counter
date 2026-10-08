@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { DateTime } from "luxon";
 import type { BusinessSpec } from "./spec.js";
 import type { Deps } from "./ports.js";
@@ -29,7 +29,7 @@ export function passedChecks(spec: BusinessSpec, serviceName: string, replay: bo
     { id: "notice", label: `At least ${mins(spec.minNoticeMin)} notice${spec.bufferMin ? `, ${spec.bufferMin} minutes between appointments` : ""}`, ok: true },
     { id: "free", label: `Free in ${cal}, re-checked while held`, ok: true },
     { id: "lock", label: "Slot locked so nobody else can take it", ok: true },
-    { id: "confirmed", label: "Customer said yes to the read-back", ok: true },
+    { id: "confirmed", label: "Confirmed after a read-back of these exact details", ok: true },
     { id: "written", label: replay ? `Already in ${cal} (a safe retry, not a double booking)` : `Written to ${cal}`, ok: true },
   ];
 }
@@ -156,6 +156,31 @@ export interface BookInput {
   customerConfirmed: boolean;
   /** Client-generated; retrying with the same key never creates a second booking. */
   idempotencyKey?: string;
+  /** Returned with the read-back. Required (when the server enforces read-back) to book exactly those details. */
+  confirmationToken?: string;
+}
+
+/** How long a read-back stays valid: long enough for a person to answer, short enough not to be reused later. */
+export const READBACK_TTL_MS = 15 * 60_000;
+
+function readBackSig(secret: string, slug: string, serviceId: string, startMs: number, name: string, exp: number) {
+  return createHmac("sha256", secret).update(`readback|${slug}|${serviceId}|${startMs}|${name.toLowerCase()}|${exp}`).digest("base64url").slice(0, 27);
+}
+
+/** A token that proves the server produced a read-back of exactly these details in the last 15 minutes. */
+export function readBackToken(secret: string, slug: string, serviceId: string, startMs: number, name: string, nowMs: number) {
+  const exp = Math.floor((nowMs + READBACK_TTL_MS) / 1000);
+  return `${exp.toString(36)}.${readBackSig(secret, slug, serviceId, startMs, name, exp)}`;
+}
+
+export function checkReadBackToken(secret: string, token: string | undefined, slug: string, serviceId: string, startMs: number, name: string, nowMs: number) {
+  if (!token) return false;
+  const [e, sig] = token.split(".");
+  const exp = parseInt(e ?? "", 36);
+  if (!sig || !Number.isFinite(exp) || exp * 1000 < nowMs) return false;
+  const want = Buffer.from(readBackSig(secret, slug, serviceId, startMs, name, exp));
+  const got = Buffer.from(sig);
+  return want.length === got.length && timingSafeEqual(want, got);
 }
 
 const clean = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
@@ -166,12 +191,25 @@ export async function book(spec: BusinessSpec, deps: Deps, input: BookInput) {
   if (!s.bookableByVoice) return fail("not_bookable_by_voice", "This service cannot be booked by voice. Please contact the business.");
   if (!spec.acceptingBookings) return fail("paused", PAUSED);
   const name = clean(input.customerName, 80);
-  if (input.customerConfirmed !== true) {
-    const t = DateTime.fromISO(input.start, { setZone: true });
-    const when = t.isValid ? sayWhen(t.setZone(spec.timezone), deps.now()) : input.start;
+  // Rule checks that need no I/O come first, so a customer is never read back a booking that is bound to fail.
+  const early = validateStart(spec, s, input.start, [], deps.now());
+  if (!early.ok) return fail(early.reason, REFUSAL_TEXT[early.reason]);
+  const startMs = early.start.toMillis();
+  // The read-back. With deps.readBackSecret set (assistants and the voice page), the server issues a token bound to
+  // these exact details and refuses to book without it: an assistant cannot skip the read-back, or read back one
+  // thing and book another. The server cannot hear the customer; the assistant must still wait for their yes.
+  const enforced = !!deps.readBackSecret;
+  const tokenOk = enforced && checkReadBackToken(deps.readBackSecret!, input.confirmationToken, spec.slug, s.id, startMs, name, deps.now().getTime());
+  if (input.customerConfirmed !== true || (enforced && !tokenOk)) {
+    const when = sayWhen(early.start.setZone(spec.timezone), deps.now());
+    const token = enforced ? readBackToken(deps.readBackSecret!, spec.slug, s.id, startMs, name, deps.now().getTime()) : undefined;
+    const why = input.customerConfirmed === true
+      ? (input.confirmationToken ? "This read-back has expired or does not match these details. " : "Nothing was booked: these details were not read back to the customer first. ")
+      : "";
     return {
-      ...fail("confirmation_required", `Read this back to the customer and wait for a clear yes: ${s.name} at ${spec.name}, ${when}, ${s.price} ${spec.currency}${name ? `, for ${name}` : ""}. Then call book again with customerConfirmed=true.`),
+      ...fail("confirmation_required", `${why}Read this back to the customer and wait for a clear yes: ${s.name} at ${spec.name}, ${when}, ${s.price} ${spec.currency}${name ? `, for ${name}` : ""}. Then call book again with the same details, customerConfirmed=true${token ? " and this confirmationToken" : ""}.`),
       readBack: { business: spec.name, service: s.name, when, price: s.price, currency: spec.currency, customerName: name || null },
+      ...(token ? { confirmationToken: token } : {}),
     };
   }
   if (!name) return fail("invalid_name", "Customer name is required.");
@@ -186,9 +224,8 @@ export async function book(spec: BusinessSpec, deps: Deps, input: BookInput) {
   }
   const phone = input.customerPhone ? clean(input.customerPhone, 30).replace(/[^0-9+()\- ]/g, "") : "";
 
-  // 1. Pure rule checks first (no I/O).
-  const pre = validateStart(spec, s, input.start, [], deps.now());
-  if (!pre.ok) return fail(pre.reason, REFUSAL_TEXT[pre.reason]);
+  // 1. Pure rule checks already passed above (no I/O).
+  const pre = early;
 
   const bookingId = input.idempotencyKey
     ? createHash("sha256").update(`${spec.slug}:${input.idempotencyKey}`).digest("hex").slice(0, 32)

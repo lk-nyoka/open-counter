@@ -1,7 +1,8 @@
 # Open Counter frontend
 
-React 19 + Vite + Tailwind. Generated with Google AI Studio from `docs/ozza-frontend-prompt.md`, then wired to the
-real API: there is no mock data anywhere. Every number, slot and booking comes from the Open Counter API.
+React 19 + Vite + Tailwind. The first visual draft came from Google AI Studio (the design brief is
+`docs/ozza-frontend-prompt.md`); we then rewrote the screens and wired every one to the real API. There is no mock data
+anywhere: every number, slot and booking comes from the Open Counter API.
 
 - `src/lib/api.ts`: typed client for `docs/API.md`.
 - `src/lib/dialog-core.js`: the booking dialog, a copy of `public/dialog.js` (tested by `src/dialog.test.ts` in the
@@ -14,5 +15,5 @@ look like `/?business=<slug>&view=booking` or `&view=assistant` and need no sign
 ## Run
 - Production: from the repo root, `npm run build:frontend` builds this app into `public/`, and `npm run deploy:cf`
   does that automatically. The Worker then serves it at `/` on the same origin as the API.
-- Development: `cp .env.example .env`, `npm install`, `npm run dev` (proxies `/api` and `/mcp` to `VITE_API_BASE`
-  through `server.ts`).
+- Development: run the local Worker (`npm run dev:local` in the repo root), then here `cp .env.example .env`,
+  `npm install`, `npm run dev`. Vite proxies `/api`, `/auth` and `/mcp` to `OPEN_COUNTER_API`.

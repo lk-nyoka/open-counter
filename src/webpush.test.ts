@@ -74,7 +74,7 @@ test("an owner's phone is notified when a customer books, never for the owner's 
 
   const cfg: any = await (await call("/api/config")).json();
   assert.equal(cfg.pushKey, v.publicKey);
-  const demo = await call("/api/auth/demo", {});
+  const demo = await call("/api/auth/demo", { samples: false });
   const { token, business } = (await demo.json()) as any;
   const auth = { authorization: `Bearer ${token}` };
   const { ua, auth: secret, sub } = browserSubscription();

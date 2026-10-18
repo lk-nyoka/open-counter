@@ -1,6 +1,6 @@
 # Devpost submission (copy and paste, field by field)
 
-Replace `YOUTUBE_LINK` with the video link before pasting.
+Demo video: https://youtu.be/DA0psoF2Nig
 
 ---
 
@@ -97,7 +97,7 @@ Upload from `docs/gallery/`: `01-open-counter.jpg` (thumbnail), `02-eight-checks
 
 ### Video demo link
 ```
-YOUTUBE_LINK
+https://youtu.be/DA0psoF2Nig
 ```
 
 ---

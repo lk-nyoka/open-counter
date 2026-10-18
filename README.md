@@ -5,10 +5,10 @@ connects Google Calendar with one click. From then on, customers can book them t
 on a voice page, or on a booking page. The AI understands the customer; the server decides. Every rule is checked
 before anything is booked, and the customer sees a receipt of each check.
 
-**Live:** https://open-counter.opencounter.workers.dev &nbsp;·&nbsp; **Demo video:** _add link_ &nbsp;·&nbsp;
+**Live:** https://open-counter.opencounter.workers.dev &nbsp;·&nbsp; **Demo video:** [youtu.be/DA0psoF2Nig](https://youtu.be/DA0psoF2Nig) &nbsp;·&nbsp;
 **Track:** Alexa+ (Amazon *Build, Ship, Shape* hackathon) &nbsp;·&nbsp; **Licence:** Apache 2.0
 
-<p align="center"><img src="public/addon/banner.png" alt="Open Counter: let customers book you by talking. Ozza the corgi smiles beside the text." width="720"></p>
+<p align="center"><a href="https://youtu.be/DA0psoF2Nig"><img src="docs/gallery/00-youtube-thumbnail.jpg" alt="Watch the 3-minute demo film on YouTube" width="720"></a></p>
 
 ---
 

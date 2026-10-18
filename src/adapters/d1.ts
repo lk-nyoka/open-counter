@@ -20,10 +20,11 @@ export interface D1Like {
  * `changes = 0` means someone else holds at least one unit.
  */
 export class D1Locks implements LockPort {
-  constructor(private db: D1Like) {}
+  /** `clock` is the same clock the booking rules use, so lock expiry and booking time always agree. */
+  constructor(private db: D1Like, private clock: () => Date = () => new Date()) {}
 
   async acquire(businessId: string, units: string[], bookingId: string, expiresAt: number): Promise<boolean> {
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(this.clock().getTime() / 1000);
     const json = JSON.stringify(units);
     const sweep = this.db.prepare("DELETE FROM locks WHERE expires_at < ?").bind(now);
     const claim = this.db

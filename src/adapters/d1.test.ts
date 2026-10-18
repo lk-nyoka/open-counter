@@ -35,7 +35,7 @@ const spec = BusinessSpecSchema.parse({
 test("book/cancel with D1 locks: 10 concurrent requests, exactly one wins; cancel frees", async () => {
   const { d1, raw } = shim();
   const d = memoryDeps(() => new Date("2026-10-07T06:00:00Z"));
-  const deps = { ...d, locks: new D1Locks(d1) };
+  const deps = { ...d, locks: new D1Locks(d1, d.now) };
   const req = (i: number, o = {}) => ({ serviceId: "haircut", start: "2026-10-15T10:00:00+02:00", customerName: `C${i}`, customerConfirmed: true, ...o });
   const res: any[] = await Promise.all(Array.from({ length: 10 }, (_, i) => book(spec, deps, req(i))));
   assert.equal(res.filter((r) => r.ok).length, 1);

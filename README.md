@@ -187,7 +187,8 @@ The tests run the real Worker code against SQLite standing in for D1, with Googl
 - **Phone alerts:** Web Push encryption is checked by an independent decryptor, and the VAPID signature is verified.
 - **Accounts:** owner and customer data are isolated, and Google OAuth works end to end.
 
-The deploy script runs every test first, and nothing ships if one fails.
+No test depends on today's date: each one runs on a fixed or relative clock, and the suite also passes with the system clock
+moved 10, 40 and 75 days ahead. The deploy script runs every test first, and nothing ships if one fails.
 
 **Security and privacy**
 - Owner sessions are HMAC-signed, and Google refresh tokens are AES-GCM encrypted at rest.
@@ -246,6 +247,13 @@ The submission period opened on 31 August 2026. This repository's first commit i
 
 The work used AI coding assistants (Claude) for implementation and review, alongside product decisions, testing on real devices (iPhone alerts, a real Google
 Calendar), and the friction log of everything that got in the way. See [`docs/friction-log.md`](docs/friction-log.md).
+
+**The demo film** was made in code, too: each scene is an HTML page animated on a fixed timeline and rendered frame by
+frame. App screens in it are real captures of Open Counter, and every quoted server reply is word for word what the MCP
+server returned (the ten-at-once race was really run: one booking, nine refusals at the `lock` check). The phone lock
+screen is a designed mock-up using the app's real alert wording. The voice-over is the author's own voice, cloned from a
+recording with [Chatterbox](https://github.com/resemble-ai/chatterbox) (MIT). Sound effects and music were synthesized
+from scratch, so no third-party audio is used.
 
 ## Licence
 

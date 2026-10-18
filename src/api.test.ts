@@ -59,7 +59,9 @@ test("publish -> live MCP endpoint -> isolation -> unpublish", async () => {
 
   const info = await mcp(env, pub.slug, "get_business_info");
   assert.equal(info.name, "Sam's Barber");
-  const av = await mcp(env, pub.slug, "check_availability", { serviceId: "haircut", date: "2026-10-12" });
+  // next weekday at least two days ahead, so the test never depends on today's date
+  let day = new Date(Date.now() + 2 * 86400e3); while ([0, 6].includes(day.getUTCDay())) day = new Date(day.getTime() + 86400e3);
+  const av = await mcp(env, pub.slug, "check_availability", { serviceId: "haircut", date: day.toISOString().slice(0, 10) });
   const start = av.slots[4].start;
   const b = await mcp(env, pub.slug, "book", { serviceId: "haircut", start, customerName: "Test", customerConfirmed: true });
   assert.equal(b.ok, true, JSON.stringify(b));

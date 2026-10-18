@@ -62,7 +62,7 @@ export default {
     const now = () => new Date();
     const ip = request.headers.get("cf-connecting-ip") ?? "";
     const deps = (_spec: BusinessSpec, channel: string): Deps => ({
-      calendar, locks: new D1Locks(env.DB), now, newId: randomId, log: withOwnerAlerts(new D1BookingLog(env.DB), _spec, env, (p) => (exec ? exec.waitUntil(p) : void p.catch(() => {}))), channel, calendarLabel: calendarLabel(_spec),
+      calendar, locks: new D1Locks(env.DB, now), now, newId: randomId, log: withOwnerAlerts(new D1BookingLog(env.DB), _spec, env, (p) => (exec ? exec.waitUntil(p) : void p.catch(() => {}))), channel, calendarLabel: calendarLabel(_spec),
       // Google calendars are remote and slow-ish: serve availability from the short cache. The built-in calendar is D1 and already fast.
       availability: _spec.calendarId.startsWith("internal:") ? undefined : cachedReader,
       limit: (key, max, win) => allow(env.DB, key, max, win),
